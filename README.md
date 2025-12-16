@@ -1,36 +1,170 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Instagram Scraper RAG
 
-## Getting Started
+Web app untuk scrape followers dan following dari akun Instagram, menganalisis minat dan niche dari followers, dan mengintegrasikan dengan chatbot RAG untuk tanya jawab data.
 
-First, run the development server:
+## Features
+
+- 🔐 Login Instagram dengan dukungan 2FA
+- 👥 Scrape followers dan following dengan chaining (depth control)
+- 📸 Scrape posts dan reels
+- 🤖 AI-powered analysis untuk interests dan niche detection
+- 💬 RAG Chatbot untuk Q&A tentang data followers
+- 📊 Dashboard dengan statistik dan monitoring jobs
+- 🔍 Search dan filter profiles
+
+## Tech Stack
+
+- **Frontend**: Next.js 14 (App Router), Tailwind CSS, shadcn/ui
+- **Backend**: Next.js API Routes, BullMQ
+- **Scraping**: Playwright
+- **Queue/Cache**: Redis
+- **Database**: MongoDB (Mongoose)
+- **Vector DB**: Qdrant (self-hosted, open-source)
+- **AI/LLM**: OpenAI GPT-4 + text-embedding-3-small
+
+## Prerequisites
+
+- Node.js 20+
+- Docker (untuk Redis, MongoDB, dan Qdrant)
+- Akun OpenAI dengan API key
+- Akun Instagram untuk scraping
+
+## Setup
+
+### 1. Clone dan Install Dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Setup Environment Variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Buat file `.env.local` di root project:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+# MongoDB
+MONGODB_URI=mongodb://localhost:27017/instagram-scraper
 
-## Learn More
+# Redis
+REDIS_URL=redis://localhost:6379
 
-To learn more about Next.js, take a look at the following resources:
+# Encryption (generate dengan: openssl rand -hex 32)
+ENCRYPTION_KEY=your-32-byte-encryption-key-here
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# OpenAI
+OPENAI_API_KEY=sk-your-openai-api-key-here
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Qdrant (self-hosted via Docker)
+QDRANT_URL=http://localhost:6333
 
-## Deploy on Vercel
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Start Redis, MongoDB, dan Qdrant
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run docker:up
+```
+
+Ini akan menjalankan:
+- **MongoDB** di port `27017`
+- **Redis** di port `6379`
+- **Qdrant** di port `6333` (REST API) dan `6334` (gRPC)
+
+Qdrant akan otomatis membuat collection saat pertama kali digunakan.
+
+### 4. Install Playwright Browsers
+
+```bash
+npx playwright install chromium
+```
+
+## Running the Application
+
+### Development Mode
+
+Terminal 1 - Start Next.js:
+```bash
+npm run dev
+```
+
+Terminal 2 - Start Worker (untuk processing scrape jobs):
+```bash
+npm run worker
+```
+
+### Production Mode
+
+```bash
+npm run build
+npm start
+```
+
+## Usage
+
+1. Buka `http://localhost:3000`
+2. Login dengan akun Instagram Anda
+3. Di Dashboard, masukkan username Instagram yang ingin di-scrape sebagai entry point
+4. Atur depth (kedalaman chaining) dan opsi scraping
+5. Klik "Start Scraping"
+6. Monitor progress di Jobs page
+7. Browse profiles yang sudah di-scrape di Profiles page
+8. Gunakan Chat untuk tanya jawab tentang data
+
+## Depth Explanation
+
+- **Depth 0**: Hanya scrape entry point profile
+- **Depth 1**: Scrape entry point + semua followers entry point
+- **Depth 2**: Scrape entry point + followers + followers dari followers
+- **Depth 3**: Dan seterusnya...
+
+⚠️ **Warning**: Depth yang lebih tinggi akan menghasilkan lebih banyak data dan memakan waktu lebih lama. Instagram juga memiliki rate limit, jadi gunakan dengan bijak.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Next.js Frontend                        │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+│  │ Login   │ │Dashboard│ │Profiles │ │  Chat   │           │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘           │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Next.js API Routes                       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│  │  Auth    │ │  Scrape  │ │   Jobs   │ │   Chat   │       │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+└─────────────────────────────────────────────────────────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        ▼                   ▼                   ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│    BullMQ     │   │   MongoDB     │   │    Qdrant     │
+│  Job Queue    │   │   Database    │   │  Vector DB    │
+└───────────────┘   └───────────────┘   └───────────────┘
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│                      Worker Process                           │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
+│  │  Playwright │  │   OpenAI    │  │   Qdrant    │           │
+│  │   Scraper   │  │  Analysis   │  │  Embeddings │           │
+│  └─────────────┘  └─────────────┘  └─────────────┘           │
+└───────────────────────────────────────────────────────────────┘
+```
+
+## Important Notes
+
+⚠️ **Rate Limiting**: Instagram memiliki rate limit yang ketat. App ini sudah mengimplementasikan delay antar request, tapi tetap gunakan dengan bijak.
+
+⚠️ **Terms of Service**: Scraping Instagram melanggar Terms of Service mereka. Gunakan app ini hanya untuk keperluan pribadi/riset.
+
+⚠️ **Account Safety**: Gunakan akun Instagram yang bukan akun utama Anda untuk scraping.
+
+## License
+
+MIT

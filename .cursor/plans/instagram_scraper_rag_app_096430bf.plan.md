@@ -4,94 +4,94 @@ overview: Membangun web app Next.js untuk scraping followers/following Instagram
 todos:
   - id: setup-project
     content: Initialize Next.js 14 project with TypeScript, Tailwind, shadcn/ui
-    status: in_progress
+    status: completed
   - id: setup-docker
     content: Create Docker Compose for Redis and MongoDB
-    status: pending
+    status: completed
     dependencies:
       - setup-project
   - id: setup-db
     content: Configure MongoDB connection and create Mongoose models
-    status: pending
+    status: completed
     dependencies:
       - setup-docker
   - id: setup-queue
     content: Setup Redis connection and BullMQ queue infrastructure
-    status: pending
+    status: completed
     dependencies:
       - setup-docker
   - id: setup-encryption
     content: Implement encryption utilities for credential storage
-    status: pending
+    status: completed
     dependencies:
       - setup-project
   - id: build-login-ui
     content: Build Instagram login form with username/password inputs
-    status: pending
+    status: completed
     dependencies:
       - setup-project
   - id: impl-ig-auth
     content: Implement Playwright Instagram login with 2FA support
-    status: pending
+    status: completed
     dependencies:
       - setup-encryption
       - setup-db
   - id: impl-session-mgmt
     content: Create session management (store, validate, refresh)
-    status: pending
+    status: completed
     dependencies:
       - impl-ig-auth
       - setup-queue
   - id: impl-scraper
     content: Implement Playwright Instagram scraper with session reuse
-    status: pending
+    status: completed
     dependencies:
       - impl-session-mgmt
   - id: impl-worker
     content: Create scrape worker with chaining logic and depth control
-    status: pending
+    status: completed
     dependencies:
       - setup-queue
       - impl-scraper
       - setup-db
   - id: setup-openai
     content: Configure OpenAI client for embeddings and chat
-    status: pending
+    status: completed
     dependencies:
       - setup-project
   - id: setup-pinecone
     content: Setup Pinecone vector database and client
-    status: pending
+    status: completed
     dependencies:
       - setup-project
   - id: impl-rag
     content: Implement RAG logic with interest/niche analysis
-    status: pending
+    status: completed
     dependencies:
       - setup-openai
       - setup-pinecone
       - setup-db
   - id: build-dashboard
     content: Build dashboard UI with scrape controls and job monitoring
-    status: pending
+    status: completed
     dependencies:
       - impl-worker
       - build-login-ui
   - id: build-profiles
     content: Build profiles browser with search and filter
-    status: pending
+    status: completed
     dependencies:
       - setup-db
       - build-dashboard
   - id: build-chatbot
     content: Build RAG chatbot interface
-    status: pending
+    status: completed
     dependencies:
       - impl-rag
       - build-dashboard
   - id: optimization
     content: Add caching, pagination, error handling, and polish
-    status: pending
+    status: completed
     dependencies:
       - build-chatbot
       - build-profiles
