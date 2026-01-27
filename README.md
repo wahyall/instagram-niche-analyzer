@@ -20,13 +20,13 @@ Web app untuk scrape followers dan following dari akun Instagram, menganalisis m
 - **Queue/Cache**: Redis
 - **Database**: MongoDB (Mongoose)
 - **Vector DB**: Qdrant (self-hosted, open-source)
-- **AI/LLM**: OpenAI GPT-4 + text-embedding-3-small
+- **AI/LLM**: OpenRouter (supports various LLMs) + @xenova/transformers for local embeddings
 
 ## Prerequisites
 
 - Node.js 20+
 - Docker (untuk Redis, MongoDB, dan Qdrant)
-- Akun OpenAI dengan API key
+- Akun OpenRouter dengan API key (get one at https://openrouter.ai/keys)
 - Akun Instagram untuk scraping
 
 ## Setup
@@ -51,8 +51,12 @@ REDIS_URL=redis://localhost:6379
 # Encryption (generate dengan: openssl rand -hex 32)
 ENCRYPTION_KEY=your-32-byte-encryption-key-here
 
-# OpenAI
-OPENAI_API_KEY=sk-your-openai-api-key-here
+# OpenRouter (LLM API - get key at https://openrouter.ai/keys)
+OPENROUTER_API_KEY=sk-or-your-openrouter-api-key-here
+# Optional: Override default model (default: openai/gpt-4o-mini)
+# OPENROUTER_MODEL=openai/gpt-4o-mini
+# Optional: Fallback model when rate limited (default: google/gemma-2-9b-it:free)
+# OPENROUTER_FALLBACK_MODEL=google/gemma-2-9b-it:free
 
 # Qdrant (self-hosted via Docker)
 QDRANT_URL=http://localhost:6333
@@ -151,7 +155,7 @@ npm start
 ┌───────────────────────────────────────────────────────────────┐
 │                      Worker Process                           │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
-│  │  Playwright │  │   OpenAI    │  │   Qdrant    │           │
+│  │  Playwright │  │ OpenRouter  │  │   Local     │           │
 │  │   Scraper   │  │  Analysis   │  │  Embeddings │           │
 │  └─────────────┘  └─────────────┘  └─────────────┘           │
 └───────────────────────────────────────────────────────────────┘

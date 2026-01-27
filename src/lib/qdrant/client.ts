@@ -2,7 +2,7 @@ import { QdrantClient } from "@qdrant/js-client-rest";
 
 const QDRANT_URL = process.env.QDRANT_URL || "http://localhost:6333";
 const COLLECTION_NAME = "instagram-profiles";
-const VECTOR_SIZE = 1536; // OpenAI text-embedding-3-small dimension
+const VECTOR_SIZE = 384; // all-MiniLM-L6-v2 dimension (via @xenova/transformers)
 
 let qdrantClient: QdrantClient | null = null;
 

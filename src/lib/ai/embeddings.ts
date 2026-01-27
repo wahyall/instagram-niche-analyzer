@@ -1,8 +1,5 @@
-import {
-  generateEmbedding,
-  generateEmbeddings,
-  analyzeInterests,
-} from "./openai";
+import { generateEmbedding, generateEmbeddings } from "./localEmbeddings";
+import { analyzeInterests } from "./openai";
 import {
   upsertProfileEmbedding,
   upsertBulkProfileEmbeddings,

@@ -46,7 +46,7 @@ export function ProfilesList() {
   });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedNiche, setSelectedNiche] = useState<string>('');
+  const [selectedNiche, setSelectedNiche] = useState<string>('-');
   const [sortBy, setSortBy] = useState('scrapedAt');
   const [sortOrder, setSortOrder] = useState('desc');
 
@@ -61,7 +61,7 @@ export function ProfilesList() {
       });
 
       if (search) params.set('search', search);
-      if (selectedNiche) params.set('niche', selectedNiche);
+      if (selectedNiche !== '-') params.set('niche', selectedNiche);
 
       const response = await fetch(`/api/profiles?${params}`);
       const data = await response.json();
@@ -117,7 +117,7 @@ export function ProfilesList() {
               <SelectValue placeholder="All Niches" />
             </SelectTrigger>
             <SelectContent className="bg-zinc-800 border-zinc-700">
-              <SelectItem value="">All Niches</SelectItem>
+              <SelectItem value="-">All Niches</SelectItem>
               {niches.map((niche) => (
                 <SelectItem key={niche} value={niche}>
                   {niche}

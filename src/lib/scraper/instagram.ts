@@ -651,6 +651,7 @@ export class InstagramScraper {
       const followers: string[] = [];
       let previousCount = 0;
       let retries = 0;
+      let lastScrollHeight = 0;
       const excludePaths = [
         "explore",
         "direct",
@@ -664,39 +665,147 @@ export class InstagramScraper {
         "help",
       ];
 
-      while (followers.length < limit && retries < 10) {
-        // Scroll the dialog
-        const scrolled = await this.page.evaluate(() => {
-          const dialog = document.querySelector('div[role="dialog"]');
-          if (!dialog) return false;
+      // Find the scrollable container once using multiple detection strategies
+      const scrollContainerFound = await this.page.evaluate(() => {
+        const dialog = document.querySelector('div[role="dialog"]');
+        if (!dialog) return { found: false, method: 'no-dialog' };
 
-          const scrollables = dialog.querySelectorAll("div");
-          for (const el of scrollables) {
-            const style = window.getComputedStyle(el);
-            if (
-              style.overflowY === "scroll" ||
-              style.overflowY === "auto" ||
-              el.scrollHeight > el.clientHeight
-            ) {
-              el.scrollTop = el.scrollHeight;
-              return true;
-            }
+        // Helper function to check if element is scrollable
+        const isScrollable = (el: Element): boolean => {
+          const style = window.getComputedStyle(el);
+          const overflowY = style.overflowY;
+          const overflow = style.overflow;
+          
+          // Check both overflow and overflowY properties
+          const hasScrollOverflow = 
+            overflowY === 'scroll' || 
+            overflowY === 'auto' || 
+            overflow === 'scroll' || 
+            overflow === 'auto' ||
+            overflow.includes('scroll') ||
+            overflow.includes('auto');
+          
+          // Element must have scrollable content
+          const hasScrollableContent = el.scrollHeight > el.clientHeight + 10;
+          
+          return hasScrollOverflow && hasScrollableContent;
+        };
+
+        // Strategy 1: Look for elements with explicit scroll overflow
+        const scrollables = dialog.querySelectorAll("div");
+        for (const el of scrollables) {
+          if (isScrollable(el)) {
+            el.setAttribute("data-scroll-container", "true");
+            return { found: true, method: 'overflow-style' };
           }
-          return false;
-        });
-
-        if (!scrolled) {
-          await this.page.keyboard.press("End");
         }
 
-        await this.page.waitForTimeout(RATE_LIMIT.scrollDelay);
+        // Strategy 2: Find the largest scrollable element (scrollHeight > clientHeight)
+        let bestCandidate: Element | null = null;
+        let maxScrollDiff = 0;
+        for (const el of scrollables) {
+          const scrollDiff = el.scrollHeight - el.clientHeight;
+          if (scrollDiff > 50 && scrollDiff > maxScrollDiff) {
+            maxScrollDiff = scrollDiff;
+            bestCandidate = el;
+          }
+        }
+        if (bestCandidate) {
+          bestCandidate.setAttribute("data-scroll-container", "true");
+          return { found: true, method: 'max-scroll-height' };
+        }
+
+        return { found: false, method: 'none-found' };
+      });
+
+      console.log(`[scrapeFollowers] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`);
+
+      while (followers.length < limit && retries < 15) {
+        // Scroll the dialog incrementally using multiple strategies
+        const scrollResult = await this.page.evaluate(() => {
+          // Helper to perform scroll on element
+          const scrollElement = (el: HTMLElement): { scrolled: boolean; atEnd: boolean; scrollHeight: number } => {
+            const prevScrollTop = el.scrollTop;
+            el.scrollTop = el.scrollTop + 400;
+            const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+            return { 
+              scrolled: el.scrollTop !== prevScrollTop, 
+              atEnd, 
+              scrollHeight: el.scrollHeight 
+            };
+          };
+
+          // Try marked container first
+          const markedEl = document.querySelector('[data-scroll-container="true"]') as HTMLElement;
+          if (markedEl) {
+            return scrollElement(markedEl);
+          }
+
+          // Fallback: find any scrollable element in dialog
+          const dialog = document.querySelector('div[role="dialog"]');
+          if (!dialog) return { scrolled: false, atEnd: true, scrollHeight: 0 };
+
+          const scrollables = dialog.querySelectorAll("div");
+          
+          // Try elements with scrollHeight > clientHeight
+          for (const el of scrollables) {
+            if (el.scrollHeight > el.clientHeight + 50) {
+              const htmlEl = el as HTMLElement;
+              const prevScrollTop = htmlEl.scrollTop;
+              htmlEl.scrollTop = htmlEl.scrollTop + 400;
+              if (htmlEl.scrollTop !== prevScrollTop) {
+                // This element is scrollable, mark it
+                htmlEl.setAttribute("data-scroll-container", "true");
+                const atEnd = htmlEl.scrollTop + htmlEl.clientHeight >= htmlEl.scrollHeight - 10;
+                return { 
+                  scrolled: true, 
+                  atEnd, 
+                  scrollHeight: htmlEl.scrollHeight 
+                };
+              }
+            }
+          }
+
+          return { scrolled: false, atEnd: true, scrollHeight: 0 };
+        });
+
+        // If JS scroll didn't work, try keyboard scroll
+        if (!scrollResult.scrolled) {
+          console.log("[scrapeFollowers] JS scroll failed, trying keyboard scroll...");
+          // Focus the dialog and use Page Down
+          await this.page.keyboard.press("PageDown");
+          await this.page.waitForTimeout(300);
+        }
+
+        // Wait for network activity after scrolling (Instagram loads more on scroll)
+        if (scrollResult.scrolled) {
+          // Wait for potential loading spinner to appear and disappear
+          try {
+            await this.page.waitForSelector('div[role="dialog"] svg[aria-label="Loading..."]', { 
+              timeout: 500 
+            }).catch(() => {});
+            await this.page.waitForSelector('div[role="dialog"] svg[aria-label="Loading..."]', { 
+              state: "hidden", 
+              timeout: 3000 
+            }).catch(() => {});
+          } catch {
+            // Loading spinner might not appear
+          }
+
+          // Also wait for network to settle
+          await this.page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+        }
+
+        // Additional delay to let content render
+        await this.page.waitForTimeout(RATE_LIMIT.scrollDelay + 500);
 
         // Extract usernames using $$eval for better reliability
         let newUsernames: string[] = [];
         try {
           newUsernames = await this.page.$$eval(
             'div[role="dialog"] a[href^="/"]',
-            (links: Element[], excludeList: string[], targetUser?: string) => {
+            (links: Element[], args: { excludeList: string[]; targetUser?: string }) => {
+              const { excludeList, targetUser } = args;
               const names: string[] = [];
               links.forEach((link) => {
                 const href = link.getAttribute("href");
@@ -717,8 +826,7 @@ export class InstagramScraper {
               });
               return names;
             },
-            excludePaths,
-            username
+            { excludeList: excludePaths, targetUser: username }
           );
         } catch (e) {
           console.log("[scrapeFollowers] Error extracting usernames:", e);
@@ -732,10 +840,19 @@ export class InstagramScraper {
           }
         });
 
+        // Check if we've reached the end of the list
+        const scrollHeightUnchanged = scrollResult.scrollHeight === lastScrollHeight;
+        lastScrollHeight = scrollResult.scrollHeight;
+
         if (followers.length === previousCount) {
           retries++;
+          // If at end of list and no new followers, we're done
+          if (scrollResult.atEnd && scrollHeightUnchanged) {
+            console.log("[scrapeFollowers] Reached end of followers list");
+            break;
+          }
           console.log(
-            `[scrapeFollowers] No new followers found, retry ${retries}/10`
+            `[scrapeFollowers] No new followers found, retry ${retries}/15`
           );
         } else {
           retries = 0;
@@ -745,7 +862,7 @@ export class InstagramScraper {
           );
         }
 
-        await randomDelay(500, 1000);
+        await randomDelay(800, 1500);
       }
 
       // Close dialog
@@ -829,6 +946,7 @@ export class InstagramScraper {
       const following: string[] = [];
       let previousCount = 0;
       let retries = 0;
+      let lastScrollHeight = 0;
       const excludePaths = [
         "explore",
         "direct",
@@ -842,39 +960,147 @@ export class InstagramScraper {
         "help",
       ];
 
-      while (following.length < limit && retries < 10) {
-        // Scroll the dialog
-        const scrolled = await this.page.evaluate(() => {
-          const dialog = document.querySelector('div[role="dialog"]');
-          if (!dialog) return false;
+      // Find the scrollable container once using multiple detection strategies
+      const scrollContainerFound = await this.page.evaluate(() => {
+        const dialog = document.querySelector('div[role="dialog"]');
+        if (!dialog) return { found: false, method: 'no-dialog' };
 
-          const scrollables = dialog.querySelectorAll("div");
-          for (const el of scrollables) {
-            const style = window.getComputedStyle(el);
-            if (
-              style.overflowY === "scroll" ||
-              style.overflowY === "auto" ||
-              el.scrollHeight > el.clientHeight
-            ) {
-              el.scrollTop = el.scrollHeight;
-              return true;
-            }
+        // Helper function to check if element is scrollable
+        const isScrollable = (el: Element): boolean => {
+          const style = window.getComputedStyle(el);
+          const overflowY = style.overflowY;
+          const overflow = style.overflow;
+          
+          // Check both overflow and overflowY properties
+          const hasScrollOverflow = 
+            overflowY === 'scroll' || 
+            overflowY === 'auto' || 
+            overflow === 'scroll' || 
+            overflow === 'auto' ||
+            overflow.includes('scroll') ||
+            overflow.includes('auto');
+          
+          // Element must have scrollable content
+          const hasScrollableContent = el.scrollHeight > el.clientHeight + 10;
+          
+          return hasScrollOverflow && hasScrollableContent;
+        };
+
+        // Strategy 1: Look for elements with explicit scroll overflow
+        const scrollables = dialog.querySelectorAll("div");
+        for (const el of scrollables) {
+          if (isScrollable(el)) {
+            el.setAttribute("data-scroll-container", "true");
+            return { found: true, method: 'overflow-style' };
           }
-          return false;
-        });
-
-        if (!scrolled) {
-          await this.page.keyboard.press("End");
         }
 
-        await this.page.waitForTimeout(RATE_LIMIT.scrollDelay);
+        // Strategy 2: Find the largest scrollable element (scrollHeight > clientHeight)
+        let bestCandidate: Element | null = null;
+        let maxScrollDiff = 0;
+        for (const el of scrollables) {
+          const scrollDiff = el.scrollHeight - el.clientHeight;
+          if (scrollDiff > 50 && scrollDiff > maxScrollDiff) {
+            maxScrollDiff = scrollDiff;
+            bestCandidate = el;
+          }
+        }
+        if (bestCandidate) {
+          bestCandidate.setAttribute("data-scroll-container", "true");
+          return { found: true, method: 'max-scroll-height' };
+        }
+
+        return { found: false, method: 'none-found' };
+      });
+
+      console.log(`[scrapeFollowing] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`);
+
+      while (following.length < limit && retries < 15) {
+        // Scroll the dialog incrementally using multiple strategies
+        const scrollResult = await this.page.evaluate(() => {
+          // Helper to perform scroll on element
+          const scrollElement = (el: HTMLElement): { scrolled: boolean; atEnd: boolean; scrollHeight: number } => {
+            const prevScrollTop = el.scrollTop;
+            el.scrollTop = el.scrollTop + 400;
+            const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+            return { 
+              scrolled: el.scrollTop !== prevScrollTop, 
+              atEnd, 
+              scrollHeight: el.scrollHeight 
+            };
+          };
+
+          // Try marked container first
+          const markedEl = document.querySelector('[data-scroll-container="true"]') as HTMLElement;
+          if (markedEl) {
+            return scrollElement(markedEl);
+          }
+
+          // Fallback: find any scrollable element in dialog
+          const dialog = document.querySelector('div[role="dialog"]');
+          if (!dialog) return { scrolled: false, atEnd: true, scrollHeight: 0 };
+
+          const scrollables = dialog.querySelectorAll("div");
+          
+          // Try elements with scrollHeight > clientHeight
+          for (const el of scrollables) {
+            if (el.scrollHeight > el.clientHeight + 50) {
+              const htmlEl = el as HTMLElement;
+              const prevScrollTop = htmlEl.scrollTop;
+              htmlEl.scrollTop = htmlEl.scrollTop + 400;
+              if (htmlEl.scrollTop !== prevScrollTop) {
+                // This element is scrollable, mark it
+                htmlEl.setAttribute("data-scroll-container", "true");
+                const atEnd = htmlEl.scrollTop + htmlEl.clientHeight >= htmlEl.scrollHeight - 10;
+                return { 
+                  scrolled: true, 
+                  atEnd, 
+                  scrollHeight: htmlEl.scrollHeight 
+                };
+              }
+            }
+          }
+
+          return { scrolled: false, atEnd: true, scrollHeight: 0 };
+        });
+
+        // If JS scroll didn't work, try keyboard scroll
+        if (!scrollResult.scrolled) {
+          console.log("[scrapeFollowing] JS scroll failed, trying keyboard scroll...");
+          // Focus the dialog and use Page Down
+          await this.page.keyboard.press("PageDown");
+          await this.page.waitForTimeout(300);
+        }
+
+        // Wait for network activity after scrolling (Instagram loads more on scroll)
+        if (scrollResult.scrolled) {
+          // Wait for potential loading spinner to appear and disappear
+          try {
+            await this.page.waitForSelector('div[role="dialog"] svg[aria-label="Loading..."]', { 
+              timeout: 500 
+            }).catch(() => {});
+            await this.page.waitForSelector('div[role="dialog"] svg[aria-label="Loading..."]', { 
+              state: "hidden", 
+              timeout: 3000 
+            }).catch(() => {});
+          } catch {
+            // Loading spinner might not appear
+          }
+
+          // Also wait for network to settle
+          await this.page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+        }
+
+        // Additional delay to let content render
+        await this.page.waitForTimeout(RATE_LIMIT.scrollDelay + 500);
 
         // Extract usernames using $$eval for better reliability
         let newUsernames: string[] = [];
         try {
           newUsernames = await this.page.$$eval(
             'div[role="dialog"] a[href^="/"]',
-            (links: Element[], excludeList: string[], targetUser: string) => {
+            (links: Element[], args: { excludeList: string[]; targetUser: string }) => {
+              const { excludeList, targetUser } = args;
               const names: string[] = [];
               links.forEach((link) => {
                 const href = link.getAttribute("href");
@@ -895,8 +1121,7 @@ export class InstagramScraper {
               });
               return names;
             },
-            excludePaths,
-            username
+            { excludeList: excludePaths, targetUser: username }
           );
         } catch (e) {
           console.log("[scrapeFollowing] Error extracting usernames:", e);
@@ -910,10 +1135,19 @@ export class InstagramScraper {
           }
         });
 
+        // Check if we've reached the end of the list
+        const scrollHeightUnchanged = scrollResult.scrollHeight === lastScrollHeight;
+        lastScrollHeight = scrollResult.scrollHeight;
+
         if (following.length === previousCount) {
           retries++;
+          // If at end of list and no new following, we're done
+          if (scrollResult.atEnd && scrollHeightUnchanged) {
+            console.log("[scrapeFollowing] Reached end of following list");
+            break;
+          }
           console.log(
-            `[scrapeFollowing] No new following found, retry ${retries}/10`
+            `[scrapeFollowing] No new following found, retry ${retries}/15`
           );
         } else {
           retries = 0;
@@ -923,7 +1157,7 @@ export class InstagramScraper {
           );
         }
 
-        await randomDelay(500, 1000);
+        await randomDelay(800, 1500);
       }
 
       // Close dialog

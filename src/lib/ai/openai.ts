@@ -1,38 +1,122 @@
 import OpenAI from "openai";
 
-let openaiClient: OpenAI | null = null;
+// Re-export embedding functions from local embeddings module
+export { generateEmbedding, generateEmbeddings } from "./localEmbeddings";
+
+let openRouterClient: OpenAI | null = null;
+
+// Model configuration
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const FALLBACK_MODEL = "google/gemma-2-9b-it:free"; // Free fallback when rate limited
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1000; // 1 second
+
+function getModel(): string {
+  return process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+}
+
+function getFallbackModel(): string {
+  return process.env.OPENROUTER_FALLBACK_MODEL || FALLBACK_MODEL;
+}
 
 export function getOpenAIClient(): OpenAI {
-  if (!openaiClient) {
-    const apiKey = process.env.OPENAI_API_KEY;
+  if (!openRouterClient) {
+    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      throw new Error("OPENAI_API_KEY environment variable is not set");
+      throw new Error("OPENROUTER_API_KEY environment variable is not set");
     }
-    openaiClient = new OpenAI({ apiKey });
+    openRouterClient = new OpenAI({
+      apiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+        "X-Title": "Instagram Scraper RAG",
+      },
+    });
   }
-  return openaiClient;
+  return openRouterClient;
 }
 
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const client = getOpenAIClient();
-
-  const response = await client.embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  return response.data[0].embedding;
+/**
+ * Check if an error is a rate limit error (HTTP 429)
+ */
+function isRateLimitError(error: unknown): boolean {
+  if (error instanceof OpenAI.APIError) {
+    return error.status === 429;
+  }
+  return false;
 }
 
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const client = getOpenAIClient();
+/**
+ * Sleep for a given number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  const response = await client.embeddings.create({
-    model: "text-embedding-3-small",
-    input: texts,
-  });
-
-  return response.data.map((item) => item.embedding);
+/**
+ * Execute a function with exponential backoff retry and fallback model support
+ */
+async function withRetryAndFallback<T>(
+  fn: (model: string) => Promise<T>,
+  context: string = "API call"
+): Promise<T> {
+  const primaryModel = getModel();
+  const fallbackModel = getFallbackModel();
+  
+  let lastError: unknown;
+  
+  // Try with primary model first
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await fn(primaryModel);
+    } catch (error) {
+      lastError = error;
+      
+      if (isRateLimitError(error)) {
+        const delay = INITIAL_DELAY_MS * Math.pow(2, attempt);
+        console.warn(
+          `[${context}] Rate limited on ${primaryModel}, attempt ${attempt + 1}/${MAX_RETRIES}. Retrying in ${delay}ms...`
+        );
+        await sleep(delay);
+      } else {
+        // Non-rate-limit error, don't retry
+        throw error;
+      }
+    }
+  }
+  
+  // Primary model exhausted retries, try fallback model
+  console.warn(
+    `[${context}] Primary model ${primaryModel} rate limited after ${MAX_RETRIES} retries. Switching to fallback: ${fallbackModel}`
+  );
+  
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await fn(fallbackModel);
+    } catch (error) {
+      lastError = error;
+      
+      if (isRateLimitError(error)) {
+        const delay = INITIAL_DELAY_MS * Math.pow(2, attempt);
+        console.warn(
+          `[${context}] Rate limited on fallback ${fallbackModel}, attempt ${attempt + 1}/${MAX_RETRIES}. Retrying in ${delay}ms...`
+        );
+        await sleep(delay);
+      } else {
+        // Non-rate-limit error, don't retry
+        throw error;
+      }
+    }
+  }
+  
+  // Both models exhausted retries
+  console.error(
+    `[${context}] All retries exhausted for both primary and fallback models`
+  );
+  throw lastError;
 }
 
 export async function analyzeInterests(
@@ -43,15 +127,12 @@ export async function analyzeInterests(
   niche: string;
 }> {
   const client = getOpenAIClient();
-
   const captionsText = captions.slice(0, 10).join("\n---\n");
 
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: `You are an expert at analyzing Instagram profiles to determine user interests and niche.
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    {
+      role: "system",
+      content: `You are an expert at analyzing Instagram profiles to determine user interests and niche.
 Analyze the provided bio and post captions to identify:
 1. A list of specific interests (e.g., "fitness", "photography", "travel", "fashion")
 2. The primary niche or category this account belongs to
@@ -63,26 +144,35 @@ Respond in JSON format:
 }
 
 Keep interests specific and relevant. The niche should be a single category like "Fitness & Health", "Fashion & Beauty", "Technology", "Food & Cooking", "Travel", "Business & Entrepreneurship", etc.`,
-      },
-      {
-        role: "user",
-        content: `Bio: ${bio || "No bio available"}\n\nPost Captions:\n${
-          captionsText || "No captions available"
-        }`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.3,
-  });
+    },
+    {
+      role: "user",
+      content: `Bio: ${bio || "No bio available"}\n\nPost Captions:\n${
+        captionsText || "No captions available"
+      }`,
+    },
+  ];
 
   try {
+    const response = await withRetryAndFallback(
+      async (model) =>
+        client.chat.completions.create({
+          model,
+          messages,
+          response_format: { type: "json_object" },
+          temperature: 0.3,
+        }),
+      "analyzeInterests"
+    );
+
     const content = response.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);
     return {
       interests: parsed.interests || [],
       niche: parsed.niche || "Unknown",
     };
-  } catch {
+  } catch (error) {
+    console.error("[analyzeInterests] Failed after all retries:", error);
     return {
       interests: [],
       niche: "Unknown",
@@ -123,17 +213,31 @@ ${context}
 
 Jawab pertanyaan user berdasarkan data di atas dengan informatif dan helpful.`;
 
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "system", content: systemMessage }, ...messages],
-    temperature: 0.7,
-    max_tokens: 2000,
-  });
+  const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemMessage },
+    ...messages,
+  ];
 
-  return (
-    response.choices[0]?.message?.content ||
-    "Maaf, saya tidak dapat menghasilkan respons. Silakan coba lagi."
-  );
+  try {
+    const response = await withRetryAndFallback(
+      async (model) =>
+        client.chat.completions.create({
+          model,
+          messages: chatMessages,
+          temperature: 0.7,
+          max_tokens: 2000,
+        }),
+      "chatWithContext"
+    );
+
+    return (
+      response.choices[0]?.message?.content ||
+      "Maaf, saya tidak dapat menghasilkan respons. Silakan coba lagi."
+    );
+  } catch (error) {
+    console.error("[chatWithContext] Failed after all retries:", error);
+    return "Maaf, layanan sedang sibuk. Silakan coba lagi dalam beberapa saat.";
+  }
 }
 
 export default getOpenAIClient;

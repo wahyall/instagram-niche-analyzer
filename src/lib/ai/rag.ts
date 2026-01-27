@@ -1,4 +1,5 @@
-import { generateEmbedding, chatWithContext } from "./openai";
+import { generateEmbedding } from "./localEmbeddings";
+import { chatWithContext } from "./openai";
 import { queryProfiles, ProfileMetadata } from "../qdrant/client";
 import { Profile } from "../db/models";
 import connectDB from "../db/mongodb";
