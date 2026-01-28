@@ -63,7 +63,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
         // Scrape posts if enabled
         let posts: InstagramPost[] = [];
         if (scrapePosts && !profileData.isPrivate) {
-          const scrapedPosts = await scraper.scrapePosts(username, 12);
+          const scrapedPosts = await scraper.scrapePosts(username, 50);
           posts = scrapedPosts.map((p) => ({
             profileId: username,
             ...p,
@@ -134,7 +134,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
           const childJobs: ScrapeJobData[] = [];
 
           if (scrapeFollowers) {
-            const followers = await scraper.scrapeFollowers(username, 50);
+            const followers = await scraper.scrapeFollowers(username);
             profile.followers = followers;
 
             // Update total profiles count
@@ -159,7 +159,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
           }
 
           if (scrapeFollowing) {
-            const following = await scraper.scrapeFollowing(username, 50);
+            const following = await scraper.scrapeFollowing(username);
             profile.following = following;
 
             // Update total profiles count

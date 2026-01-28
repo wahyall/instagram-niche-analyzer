@@ -20,13 +20,13 @@ Web app untuk scrape followers dan following dari akun Instagram, menganalisis m
 - **Queue/Cache**: Redis
 - **Database**: MongoDB (Mongoose)
 - **Vector DB**: Qdrant (self-hosted, open-source)
-- **AI/LLM**: OpenRouter (supports various LLMs) + @xenova/transformers for local embeddings
+- **AI/LLM**: Google Gemini (via OpenAI-compatible API) + @xenova/transformers for local embeddings
 
 ## Prerequisites
 
 - Node.js 20+
 - Docker (untuk Redis, MongoDB, dan Qdrant)
-- Akun OpenRouter dengan API key (get one at https://openrouter.ai/keys)
+- Gemini API key dari Google AI Studio (buat di https://aistudio.google.com/apikey)
 - Akun Instagram untuk scraping
 
 ## Setup
@@ -51,11 +51,16 @@ REDIS_URL=redis://localhost:6379
 # Encryption (generate dengan: openssl rand -hex 32)
 ENCRYPTION_KEY=your-32-byte-encryption-key-here
 
-# OpenRouter (LLM API - get key at https://openrouter.ai/keys)
-OPENROUTER_API_KEY=sk-or-your-openrouter-api-key-here
-# Optional: Override default model (default: openai/gpt-4o-mini)
+# Gemini (LLM API - get key at https://aistudio.google.com/apikey)
+GEMINI_API_KEY=your-gemini-api-key-here
+# Optional: Override default model (default: gemini-2.0-flash)
+# GEMINI_MODEL=gemini-2.0-flash
+# Optional: Fallback model when rate limited (default: gemini-1.5-flash)
+# GEMINI_FALLBACK_MODEL=gemini-1.5-flash
+#
+# Backward compatibility (optional): OPENROUTER_* vars are still accepted as a fallback
+# OPENROUTER_API_KEY=sk-or-your-openrouter-api-key-here
 # OPENROUTER_MODEL=openai/gpt-4o-mini
-# Optional: Fallback model when rate limited (default: google/gemma-2-9b-it:free)
 # OPENROUTER_FALLBACK_MODEL=google/gemma-2-9b-it:free
 
 # Qdrant (self-hosted via Docker)
@@ -65,6 +70,8 @@ QDRANT_URL=http://localhost:6333
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NODE_ENV=development
 ```
+
+You can also use [`env.example`](env.example) as a starting point.
 
 ### 3. Start Redis, MongoDB, dan Qdrant
 

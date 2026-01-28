@@ -25,6 +25,7 @@ export class InstagramScraper {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private isLoggedIn: boolean = false;
+  private resourceBlockMode: "login" | "scrape" = "login";
 
   async init(cookies?: Cookie[]): Promise<void> {
     this.browser = await chromium.launch({
@@ -51,14 +52,19 @@ export class InstagramScraper {
 
     this.page = await this.context.newPage();
 
-    // Block unnecessary resources for faster scraping
+    // Block unnecessary resources (but keep CSS/fonts during login so elements are actually visible/clickable)
     await this.page.route("**/*", (route) => {
       const resourceType = route.request().resourceType();
-      if (["image", "stylesheet", "font", "media"].includes(resourceType)) {
-        route.abort();
-      } else {
-        route.continue();
+      // Always block heavy assets
+      if (["image", "media"].includes(resourceType)) return route.abort();
+      // Only block CSS/fonts after login (scraping mode)
+      if (
+        this.resourceBlockMode === "scrape" &&
+        ["stylesheet", "font"].includes(resourceType)
+      ) {
+        return route.abort();
       }
+      return route.continue();
     });
   }
 
@@ -89,6 +95,7 @@ export class InstagramScraper {
     if (!this.page) throw new Error("Browser not initialized");
 
     try {
+      this.resourceBlockMode = "login";
       await this.page.goto(`${INSTAGRAM_URL}/accounts/login/`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
@@ -149,21 +156,28 @@ export class InstagramScraper {
       }
       await randomDelay(500, 1000);
 
-      // Click login button and wait for navigation
-      const loginButton =
-        (await this.page.$('button[type="submit"]')) ||
-        (await this.page.$('[data-visualcompletion="ignore"]'));
-      if (!loginButton) {
-        throw new Error("Login button not found");
-      }
+      // Click login button (locator.click waits for visible/enabled/stable)
+      const loginButton = this.page.locator('[data-visualcompletion="ignore"]').first();
+      await loginButton.waitFor({ state: "visible", timeout: 15000 });
 
-      // Click and wait for navigation or response
-      await Promise.all([
-        loginButton.click(),
-        this.page
-          .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
-          .catch(() => {}),
-      ]);
+      console.log("[Login] Clicking login button...");
+      await loginButton.click({ timeout: 30000 });
+
+      // Instagram often logs in via XHR without a full navigation.
+      // Wait for *either* a URL change or a known post-login element / challenge.
+      await Promise.race([
+        this.page.waitForURL(/two_factor|challenge|accounts\/onetap|\/$/, {
+          timeout: 20000,
+        }),
+        this.page.waitForSelector(
+          'svg[aria-label="Home"], a[href="/"], nav[role="navigation"]',
+          { timeout: 20000 }
+        ),
+        this.page.waitForSelector(
+          'input[name="verificationCode"], input[name="security_code"]',
+          { timeout: 20000 }
+        ),
+      ]).catch(() => {});
 
       // Wait for page to stabilize after navigation
       await this.page
@@ -217,6 +231,7 @@ export class InstagramScraper {
         currentUrl.includes("/accounts/onetap")
       ) {
         this.isLoggedIn = true;
+        this.resourceBlockMode = "scrape";
         const cookies = await this.getCookies();
         return {
           success: true,
@@ -232,6 +247,7 @@ export class InstagramScraper {
           { timeout: 10000 }
         );
         this.isLoggedIn = true;
+        this.resourceBlockMode = "scrape";
         const cookies = await this.getCookies();
         return {
           success: true,
@@ -273,6 +289,7 @@ export class InstagramScraper {
   }> {
     if (!this.page) throw new Error("Browser not initialized");
 
+    console.log("[verify2FA] Starting 2FA verification...");
     try {
       // Find the 2FA input field
       const codeInput =
@@ -593,14 +610,13 @@ export class InstagramScraper {
   }
 
   async scrapeFollowers(
-    username: string,
-    limit: number = 100
+    username: string
   ): Promise<string[]> {
     if (!this.page || !this.isLoggedIn) {
       throw new Error("Not logged in");
     }
 
-    console.log(`[scrapeFollowers] Starting for ${username}, limit: ${limit}`);
+    console.log(`[scrapeFollowers] Starting for ${username}`);
 
     try {
       await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
@@ -716,7 +732,7 @@ export class InstagramScraper {
 
       console.log(`[scrapeFollowers] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`);
 
-      while (followers.length < limit && retries < 15) {
+      while (retries < 15) {
         // Scroll the dialog incrementally using multiple strategies
         const scrollResult = await this.page.evaluate(`
           (function() {
@@ -861,7 +877,7 @@ export class InstagramScraper {
       await this.page.keyboard.press("Escape");
       await randomDelay(300, 500);
 
-      const result = followers.slice(0, limit);
+      const result = followers;
       console.log(
         `[scrapeFollowers] Complete. Extracted ${result.length} followers`
       );
@@ -877,14 +893,13 @@ export class InstagramScraper {
   }
 
   async scrapeFollowing(
-    username: string,
-    limit: number = 100
+    username: string
   ): Promise<string[]> {
     if (!this.page || !this.isLoggedIn) {
       throw new Error("Not logged in");
     }
 
-    console.log(`[scrapeFollowing] Starting for ${username}, limit: ${limit}`);
+    console.log(`[scrapeFollowing] Starting for ${username}`);
 
     try {
       await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
@@ -1000,7 +1015,7 @@ export class InstagramScraper {
 
       console.log(`[scrapeFollowing] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`);
 
-      while (following.length < limit && retries < 15) {
+      while (retries < 15) {
         // Scroll the dialog incrementally using multiple strategies
         const scrollResult = await this.page.evaluate(`
           (function() {
@@ -1145,7 +1160,7 @@ export class InstagramScraper {
       await this.page.keyboard.press("Escape");
       await randomDelay(300, 500);
 
-      const result = following.slice(0, limit);
+      const result = following;
       console.log(
         `[scrapeFollowing] Complete. Extracted ${result.length} following`
       );

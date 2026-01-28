@@ -3,40 +3,51 @@ import OpenAI from "openai";
 // Re-export embedding functions from local embeddings module
 export { generateEmbedding, generateEmbeddings } from "./localEmbeddings";
 
-let openRouterClient: OpenAI | null = null;
+let aiClient: OpenAI | null = null;
 
 // Model configuration
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
-const FALLBACK_MODEL = "google/gemma-2-9b-it:free"; // Free fallback when rate limited
+const DEFAULT_MODEL = "gemini-3-flash-preview";
+const FALLBACK_MODEL = "gemini-1.5-flash";
+
+// Gemini OpenAI-compatible endpoint
+const GEMINI_OPENAI_BASE_URL =
+  "https://generativelanguage.googleapis.com/v1beta/openai/";
+
+function getApiKey(): string {
+  // Prefer Gemini key; allow OpenRouter key as a transitional fallback
+  return process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || "";
+}
 
 // Retry configuration
 const MAX_RETRIES = 3;
-const INITIAL_DELAY_MS = 1000; // 1 second
+const INITIAL_DELAY_MS = 5000; // 5 seconds
 
 function getModel(): string {
-  return process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+  return process.env.GEMINI_MODEL || process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
 }
 
 function getFallbackModel(): string {
-  return process.env.OPENROUTER_FALLBACK_MODEL || FALLBACK_MODEL;
+  return (
+    process.env.GEMINI_FALLBACK_MODEL ||
+    process.env.OPENROUTER_FALLBACK_MODEL ||
+    FALLBACK_MODEL
+  );
 }
 
 export function getOpenAIClient(): OpenAI {
-  if (!openRouterClient) {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!aiClient) {
+    const apiKey = getApiKey();
     if (!apiKey) {
-      throw new Error("OPENROUTER_API_KEY environment variable is not set");
+      throw new Error(
+        "GEMINI_API_KEY environment variable is not set (or OPENROUTER_API_KEY as fallback)"
+      );
     }
-    openRouterClient = new OpenAI({
+    aiClient = new OpenAI({
       apiKey,
-      baseURL: "https://openrouter.ai/api/v1",
-      defaultHeaders: {
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-        "X-Title": "Instagram Scraper RAG",
-      },
+      baseURL: GEMINI_OPENAI_BASE_URL,
     });
   }
-  return openRouterClient;
+  return aiClient;
 }
 
 /**
