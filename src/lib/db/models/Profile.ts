@@ -91,6 +91,10 @@ ProfileSchema.index({ username: 'text', fullName: 'text', bio: 'text' });
 ProfileSchema.index({ sessionId: 1, scrapedAt: -1 });
 ProfileSchema.index({ niche: 1, followersCount: -1 });
 
+// Indexes for followers/following queries
+ProfileSchema.index({ parentUsername: 1, sessionId: 1 });
+ProfileSchema.index({ username: 1, sessionId: 1 });
+
 export const Profile: Model<IProfileDocument> =
   mongoose.models.Profile || mongoose.model<IProfileDocument>('Profile', ProfileSchema);
 

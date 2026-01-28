@@ -32,6 +32,297 @@ export async function searchRelevantProfiles(
   }));
 }
 
+// Query type detection for followers/following queries
+type QueryType =
+  | 'list_followers'
+  | 'list_following'
+  | 'following_niche'
+  | 'followers_following_niche'
+  | 'general';
+
+interface QueryInfo {
+  type: QueryType;
+  username: string | null;
+  page: number;
+}
+
+function detectQueryType(message: string): QueryInfo {
+  // Extract username pattern: @username or "akun X" or just username after certain keywords
+  const usernamePatterns = [
+    /@([\w.]+)/i,
+    /akun\s+([\w.]+)/i,
+    /username\s+([\w.]+)/i,
+    /following\s+([\w.]+)/i,
+    /followers\s+(?:dari\s+)?([\w.]+)/i,
+  ];
+
+  let username: string | null = null;
+  for (const pattern of usernamePatterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      username = match[1];
+      break;
+    }
+  }
+
+  // Extract page number
+  const pageMatch = message.match(/halaman\s+(\d+)|page\s+(\d+)/i);
+  const page = pageMatch ? parseInt(pageMatch[1] || pageMatch[2]) : 1;
+
+  // Detect query patterns - order matters (more specific patterns first)
+
+  // Pattern: "followers X kebanyakan mem-follow niche apa" or "niche yang difollow followers X"
+  if (/followers.*mem-?follow.*niche|niche.*difollow.*followers|apa\s+yang\s+difollow.*followers|followers.*follow.*akun.*niche/i.test(message)) {
+    return { type: 'followers_following_niche', username, page };
+  }
+
+  // Pattern: "akun X suka follow niche apa" or "niche apa yang difollow akun X"
+  if (/niche\s+apa.*following|follow.*niche\s+apa|suka\s+follow.*niche|niche.*yang.*difollow|following.*niche/i.test(message)) {
+    return { type: 'following_niche', username, page };
+  }
+
+  // Pattern: "followers X siapa saja" or "daftar followers X"
+  if (/followers\s+.*\s+siapa|siapa\s+saja\s+followers|daftar\s+followers|list\s+followers/i.test(message)) {
+    return { type: 'list_followers', username, page };
+  }
+
+  // Pattern: "following X siapa saja" or "daftar following X"
+  if (/following\s+.*\s+siapa|siapa\s+saja.*following|daftar\s+following|list\s+following|lanjutkan.*following/i.test(message)) {
+    return { type: 'list_following', username, page };
+  }
+
+  return { type: 'general', username, page };
+}
+
+// Get paginated list of followers or following
+export async function getRelationshipContext(
+  username: string,
+  type: 'followers' | 'following',
+  sessionId: string,
+  page: number = 1,
+  pageSize: number = 100
+): Promise<string> {
+  await connectDB();
+
+  // Try to find profile with sessionId first, then without
+  let profile = await Profile.findOne({ username, sessionId }).lean();
+  if (!profile) {
+    profile = await Profile.findOne({ username }).lean();
+  }
+
+  if (!profile) {
+    return `Profile @${username} tidak ditemukan dalam database.`;
+  }
+
+  const accountList = type === 'followers'
+    ? (profile.followers || [])
+    : (profile.following || []);
+
+  const total = accountList.length;
+
+  if (total === 0) {
+    return `@${username} tidak memiliki data ${type} yang tersimpan.`;
+  }
+
+  const totalPages = Math.ceil(total / pageSize);
+  const startIdx = (page - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, total);
+  const paginatedAccounts = accountList.slice(startIdx, endIdx);
+
+  return `
+=== DAFTAR ${type.toUpperCase()} @${username} ===
+Total: ${total.toLocaleString()} akun
+Halaman: ${page} dari ${totalPages} (${pageSize} akun per halaman)
+
+${type === 'followers' ? 'Followers' : 'Following'} (${startIdx + 1}-${endIdx}):
+${paginatedAccounts.map(acc => `@${acc}`).join(', ')}
+
+${page < totalPages ? `[Untuk melihat halaman berikutnya, tanyakan "lanjutkan daftar ${type} ${username} halaman ${page + 1}"]` : '[Ini adalah halaman terakhir]'}
+`;
+}
+
+// Analyze niche distribution of accounts that a user follows
+export async function getFollowingNicheAnalysis(
+  username: string,
+  sessionId: string
+): Promise<string> {
+  await connectDB();
+
+  // Try to find profile with sessionId first, then without
+  let profile = await Profile.findOne({ username, sessionId }).lean();
+  if (!profile) {
+    profile = await Profile.findOne({ username }).lean();
+  }
+
+  if (!profile) {
+    return `Profile @${username} tidak ditemukan dalam database.`;
+  }
+
+  const followingList = profile.following || [];
+
+  if (followingList.length === 0) {
+    return `@${username} tidak memiliki data following yang tersimpan.`;
+  }
+
+  // Use MongoDB aggregation to analyze niche distribution
+  const nicheAggregation = await Profile.aggregate([
+    { $match: { username: { $in: followingList } } },
+    { $group: {
+        _id: '$niche',
+        count: { $sum: 1 },
+        sampleAccounts: { $push: '$username' }
+    }},
+    { $sort: { count: -1 } },
+    { $project: {
+        niche: '$_id',
+        count: 1,
+        sampleAccounts: { $slice: ['$sampleAccounts', 5] }
+    }}
+  ]);
+
+  const interestAggregation = await Profile.aggregate([
+    { $match: { username: { $in: followingList } } },
+    { $unwind: '$interests' },
+    { $group: { _id: '$interests', count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: 15 }
+  ]);
+
+  const analyzedCount = await Profile.countDocuments({ username: { $in: followingList } });
+  const totalFollowing = followingList.length;
+
+  if (analyzedCount === 0) {
+    return `@${username} mem-follow ${totalFollowing} akun, namun tidak ada yang ditemukan di database untuk dianalisis.`;
+  }
+
+  const nicheDistribution = nicheAggregation.map((n) => ({
+    ...n,
+    percentage: Math.round((n.count / analyzedCount) * 100 * 10) / 10
+  }));
+
+  const interestDistribution = interestAggregation.map(i => ({
+    interest: i._id,
+    count: i.count,
+    percentage: Math.round((i.count / analyzedCount) * 100 * 10) / 10
+  }));
+
+  return `
+=== ANALISIS NICHE FOLLOWING @${username} ===
+Total Following: ${totalFollowing.toLocaleString()} akun
+Ditemukan di Database: ${analyzedCount.toLocaleString()} akun (${Math.round((analyzedCount / totalFollowing) * 100 * 10) / 10}%)
+
+--- DISTRIBUSI NICHE YANG DIFOLLOW ---
+${nicheDistribution.map((n, i) =>
+  `${i + 1}. ${n.niche || 'Unknown'}: ${n.count} akun (${n.percentage}%) - ${n.sampleAccounts.map((a: string) => '@' + a).join(', ')}`
+).join('\n')}
+
+--- TOP 15 INTERESTS ---
+${interestDistribution.map((i, idx) =>
+  `${idx + 1}. ${i.interest}: ${i.count} mentions (${i.percentage}%)`
+).join('\n')}
+`;
+}
+
+// Analyze what niches followers of an account tend to follow
+export async function getFollowersFollowingNicheAnalysis(
+  entryUsername: string,
+  sessionId: string
+): Promise<string> {
+  await connectDB();
+
+  // Get followers of entry account (profiles with parentUsername = entryUsername)
+  const followers = await Profile.find({
+    parentUsername: entryUsername,
+    sessionId
+  }).lean();
+
+  if (followers.length === 0) {
+    return `Tidak ada data followers dari @${entryUsername} yang tersimpan dalam session ini.`;
+  }
+
+  // Collect all following from all followers
+  const allFollowing: string[] = [];
+  const followersWithData: string[] = [];
+
+  followers.forEach(f => {
+    if (f.following && f.following.length > 0) {
+      allFollowing.push(...f.following);
+      followersWithData.push(f.username);
+    }
+  });
+
+  if (allFollowing.length === 0) {
+    return `Followers @${entryUsername} tidak memiliki data following yang tersimpan.`;
+  }
+
+  // Count frequency of each followed account
+  const followCounts: Record<string, number> = {};
+  allFollowing.forEach(username => {
+    followCounts[username] = (followCounts[username] || 0) + 1;
+  });
+
+  const uniqueFollowed = Object.keys(followCounts);
+
+  // Aggregate niche distribution
+  const nicheAggregation = await Profile.aggregate([
+    { $match: { username: { $in: uniqueFollowed } } },
+    { $group: {
+        _id: '$niche',
+        uniqueAccounts: { $sum: 1 },
+        accounts: { $push: '$username' }
+    }},
+    { $sort: { uniqueAccounts: -1 } }
+  ]);
+
+  // Enhance with follow counts
+  const nicheDistribution = nicheAggregation.map(n => {
+    const totalFollowsForNiche = n.accounts.reduce((sum: number, acc: string) =>
+      sum + (followCounts[acc] || 0), 0);
+    const topAccounts = n.accounts
+      .map((acc: string) => ({ username: acc, count: followCounts[acc] || 0 }))
+      .sort((a: {count: number}, b: {count: number}) => b.count - a.count)
+      .slice(0, 5);
+
+    return {
+      niche: n._id || 'Unknown',
+      totalFollows: totalFollowsForNiche,
+      uniqueAccounts: n.uniqueAccounts,
+      topAccounts
+    };
+  }).sort((a, b) => b.totalFollows - a.totalFollows);
+
+  const totalFollows = Object.values(followCounts).reduce((a, b) => a + b, 0);
+  const foundInDb = await Profile.countDocuments({ username: { $in: uniqueFollowed } });
+
+  if (foundInDb === 0) {
+    return `Followers @${entryUsername} mem-follow ${uniqueFollowed.length} unique akun, namun tidak ada yang ditemukan di database untuk dianalisis.`;
+  }
+
+  return `
+=== ANALISIS AGREGAT: APA YANG DIFOLLOW OLEH FOLLOWERS @${entryUsername} ===
+
+Entry Account: @${entryUsername}
+Total Followers: ${followers.length.toLocaleString()} akun
+Followers dengan Data Following: ${followersWithData.length.toLocaleString()} akun (${Math.round((followersWithData.length / followers.length) * 100 * 10) / 10}%)
+
+--- RINGKASAN ---
+Total Unique Akun yang Difollow: ${uniqueFollowed.length.toLocaleString()} akun
+Ditemukan di Database: ${foundInDb.toLocaleString()} akun (${Math.round((foundInDb / uniqueFollowed.length) * 100 * 10) / 10}%)
+
+--- DISTRIBUSI NICHE YANG PALING BANYAK DIFOLLOW ---
+${nicheDistribution.slice(0, 10).map((n, i) =>
+  `${i + 1}. ${n.niche}: ${n.totalFollows.toLocaleString()} follows dari ${n.uniqueAccounts} unique akun
+   Top: ${n.topAccounts.map((a: {username: string, count: number}) => `@${a.username} (${a.count}x)`).join(', ')}`
+).join('\n')}
+
+--- INSIGHT ---
+Followers @${entryUsername} paling banyak mem-follow akun dengan niche:
+${nicheDistribution.slice(0, 3).map((n, i) =>
+  `${i + 1}. ${n.niche} (${Math.round((n.totalFollows / totalFollows) * 100)}%)`
+).join('\n')}
+`;
+}
+
 export async function buildContextFromProfiles(
   profiles: Array<{
     username: string;
@@ -48,14 +339,17 @@ export async function buildContextFromProfiles(
     const fullProfile = await Profile.findOne({ username }).lean();
 
     if (fullProfile) {
+      const followersList = fullProfile.followers || [];
+      const followingList = fullProfile.following || [];
+
       const profileContext = [
         `--- Profile: @${username} (Relevance: ${(score * 100).toFixed(
           1
         )}%) ---`,
         `Name: ${fullProfile.fullName || "N/A"}`,
         `Bio: ${fullProfile.bio || "N/A"}`,
-        `Followers: ${fullProfile.followersCount.toLocaleString()}`,
-        `Following: ${fullProfile.followingCount.toLocaleString()}`,
+        `Followers: ${followersList.length} akun${followersList.length > 0 ? ` (sample: ${followersList.slice(0, 20).join(", ")}${followersList.length > 20 ? "..." : ""})` : ""}`,
+        `Following: ${followingList.length} akun${followingList.length > 0 ? ` (sample: ${followingList.slice(0, 20).join(", ")}${followingList.length > 20 ? "..." : ""})` : ""}`,
         `Posts: ${fullProfile.postsCount}`,
         `Interests: ${metadata.interests.join(", ") || "Unknown"}`,
         `Niche: ${metadata.niche || "Unknown"}`,
@@ -376,6 +670,32 @@ export async function chat(
     };
   }
 
+  // Detect query type for followers/following queries
+  const queryInfo = detectQueryType(lastUserMessage.content);
+  let additionalContext = "";
+
+  // Generate additional context based on query type
+  if (queryInfo.username) {
+    switch (queryInfo.type) {
+      case 'list_followers':
+        additionalContext = await getRelationshipContext(
+          queryInfo.username, 'followers', sessionId, queryInfo.page
+        );
+        break;
+      case 'list_following':
+        additionalContext = await getRelationshipContext(
+          queryInfo.username, 'following', sessionId, queryInfo.page
+        );
+        break;
+      case 'following_niche':
+        additionalContext = await getFollowingNicheAnalysis(queryInfo.username, sessionId);
+        break;
+      case 'followers_following_niche':
+        additionalContext = await getFollowersFollowingNicheAnalysis(queryInfo.username, sessionId);
+        break;
+    }
+  }
+
   // Search for relevant profiles (for specific profile questions)
   let relevantProfiles: Array<{
     username: string;
@@ -397,10 +717,15 @@ export async function chat(
   // Build comprehensive context including statistics
   const context = await buildComprehensiveContext(sessionId, relevantProfiles);
 
+  // Combine additional context with main context
+  const fullContext = additionalContext
+    ? `${additionalContext}\n\n${context}`
+    : context;
+
   // Generate response with context
   const response = await chatWithContext(
     messages.map((m) => ({ role: m.role, content: m.content })),
-    context
+    fullContext
   );
 
   // Build sources

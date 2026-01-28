@@ -57,6 +57,37 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Clean and parse JSON from model response
+ * Handles cases where JSON might be wrapped in markdown code blocks
+ */
+function parseJSONResponse(content: string): Record<string, unknown> {
+  if (!content || content.trim() === "") {
+    return {};
+  }
+
+  let cleaned = content.trim();
+
+  // Remove markdown code blocks (```json ... ``` or ``` ... ```)
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/gm, "");
+  cleaned = cleaned.replace(/\n?```\s*$/gm, "");
+
+  // Try to extract JSON object if there's extra text
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    cleaned = jsonMatch[0];
+  }
+
+  cleaned = cleaned.trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    console.error("[parseJSONResponse] Failed to parse JSON:", cleaned);
+    throw error;
+  }
+}
+
+/**
  * Execute a function with exponential backoff retry and fallback model support
  */
 async function withRetryAndFallback<T>(
@@ -166,10 +197,10 @@ Keep interests specific and relevant. The niche should be a single category like
     );
 
     const content = response.choices[0]?.message?.content || "{}";
-    const parsed = JSON.parse(content);
+    const parsed = parseJSONResponse(content);
     return {
-      interests: parsed.interests || [],
-      niche: parsed.niche || "Unknown",
+      interests: Array.isArray(parsed.interests) ? parsed.interests : [],
+      niche: typeof parsed.niche === "string" ? parsed.niche : "Unknown",
     };
   } catch (error) {
     console.error("[analyzeInterests] Failed after all retries:", error);
@@ -190,6 +221,7 @@ export async function chatWithContext(
 
 - Statistik lengkap (distribusi niche, distribusi minat/interest, dll)
 - Data followers individual (bio, jumlah followers, niche, interests)
+- Daftar followers dan following dari setiap akun
 - Saran konten berdasarkan data
 
 KEMAMPUAN KAMU:
@@ -199,6 +231,19 @@ KEMAMPUAN KAMU:
 4. Mencari profile dengan karakteristik tertentu
 5. Memberikan insight dan rekomendasi strategis
 
+KEMAMPUAN FOLLOWERS/FOLLOWING:
+6. Menampilkan daftar followers dari akun X (100 per halaman, bisa pagination)
+7. Menampilkan daftar following dari akun X (100 per halaman, bisa pagination)
+8. Menganalisis niche apa yang disukai/difollow oleh akun X
+9. Menganalisis niche apa yang paling banyak difollow oleh followers dari akun X (analisis agregat)
+10. Memberikan rekomendasi konten berdasarkan pola following audience
+
+Contoh pertanyaan yang bisa dijawab:
+- "Following akun wahy.all siapa saja?"
+- "Akun wahy.all suka follow akun dengan niche apa?"
+- "Followers dari akun ynsurabaya kebanyakan mem-follow akun dengan niche apa?"
+- "Lanjutkan daftar following wahy.all halaman 2"
+
 PANDUAN MENJAWAB:
 - Gunakan data dari context untuk memberikan jawaban yang akurat
 - Sertakan angka dan persentase jika relevan
@@ -207,6 +252,7 @@ PANDUAN MENJAWAB:
 - Jika user bertanya dalam Bahasa Indonesia, jawab dalam Bahasa Indonesia
 - Format jawaban dengan rapi menggunakan bullet points atau numbering jika perlu
 - Jika data tidak tersedia, jelaskan dengan sopan
+- Untuk daftar panjang, informasikan tentang pagination
 
 DATA CONTEXT:
 ${context}
