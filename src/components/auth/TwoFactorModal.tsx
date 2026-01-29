@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,9 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 
+const POLL_INTERVAL = 1000; // 1 second
+const MAX_POLL_TIME = 60000; // 1 minute for 2FA
+
 interface TwoFactorModalProps {
   open: boolean;
   onClose: () => void;
@@ -25,6 +28,56 @@ export function TwoFactorModal({ open, onClose, authJobId, onSuccess }: TwoFacto
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const pollForStatus = useCallback(async (): Promise<void> => {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < MAX_POLL_TIME) {
+      try {
+        const response = await fetch('/api/auth/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ authJobId }),
+        });
+
+        const data = await response.json();
+
+        // Still pending - continue polling
+        if (data.pending) {
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+          continue;
+        }
+
+        // Success
+        if (data.success && data.sessionId) {
+          onSuccess();
+          return;
+        }
+
+        // 2FA error (wrong code) - allow retry
+        if (data.requires2FA && data.error) {
+          setError(data.error);
+          setLoading(false);
+          return;
+        }
+
+        // Failed
+        if (!data.success) {
+          setError(data.error || 'Verification failed');
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        setError('Connection error. Please try again.');
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Timeout
+    setError('Verification timeout. Please try again.');
+    setLoading(false);
+  }, [authJobId, onSuccess]);
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,13 +93,14 @@ export function TwoFactorModal({ open, onClose, authJobId, onSuccess }: TwoFacto
 
       const data = await response.json();
 
-      if (!data.success) {
+      if (!data.success && !data.pending) {
         setError(data.error || 'Verification failed');
         setLoading(false);
         return;
       }
 
-      onSuccess();
+      // Job queued - start polling
+      await pollForStatus();
     } catch (err) {
       setError('Connection error. Please try again.');
       setLoading(false);

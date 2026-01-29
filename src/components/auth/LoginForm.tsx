@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,19 +10,76 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Eye, EyeOff, Instagram, AlertCircle, Shield } from 'lucide-react';
 import { TwoFactorModal } from './TwoFactorModal';
 
+const POLL_INTERVAL = 1000; // 1 second
+const MAX_POLL_TIME = 120000; // 2 minutes
+
 export function LoginForm() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Logging in...');
   const [error, setError] = useState('');
   const [show2FA, setShow2FA] = useState(false);
   const [authJobId, setAuthJobId] = useState('');
 
+  const pollForStatus = useCallback(async (jobId: string): Promise<void> => {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < MAX_POLL_TIME) {
+      try {
+        const response = await fetch('/api/auth/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ authJobId: jobId }),
+        });
+
+        const data = await response.json();
+
+        // Still pending - continue polling
+        if (data.pending) {
+          setLoadingMessage('Connecting to Instagram...');
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+          continue;
+        }
+
+        // Requires 2FA
+        if (data.requires2FA) {
+          setAuthJobId(jobId);
+          setShow2FA(true);
+          setLoading(false);
+          return;
+        }
+
+        // Success
+        if (data.success && data.sessionId) {
+          router.push('/dashboard');
+          return;
+        }
+
+        // Failed
+        if (!data.success) {
+          setError(data.error || 'Login failed');
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        setError('Connection error. Please try again.');
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Timeout
+    setError('Login timeout. Please try again.');
+    setLoading(false);
+  }, [router]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLoadingMessage('Logging in...');
     setError('');
 
     try {
@@ -34,20 +91,17 @@ export function LoginForm() {
 
       const data = await response.json();
 
-      if (data.requires2FA) {
-        setAuthJobId(data.authJobId);
-        setShow2FA(true);
-        setLoading(false);
-        return;
-      }
-
-      if (!data.success) {
+      if (!data.success && !data.pending) {
         setError(data.error || 'Login failed');
         setLoading(false);
         return;
       }
 
-      router.push('/dashboard');
+      // Job queued - start polling
+      if (data.authJobId) {
+        setLoadingMessage('Connecting to Instagram...');
+        await pollForStatus(data.authJobId);
+      }
     } catch (err) {
       setError('Connection error. Please try again.');
       setLoading(false);
@@ -127,7 +181,7 @@ export function LoginForm() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Logging in...
+                  {loadingMessage}
                 </>
               ) : (
                 'Login ke Instagram'
