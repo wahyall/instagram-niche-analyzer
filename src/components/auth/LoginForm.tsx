@@ -18,7 +18,7 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [show2FA, setShow2FA] = useState(false);
-  const [tempSessionId, setTempSessionId] = useState('');
+  const [authJobId, setAuthJobId] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +35,7 @@ export function LoginForm() {
       const data = await response.json();
 
       if (data.requires2FA) {
-        setTempSessionId(data.sessionId);
+        setAuthJobId(data.authJobId);
         setShow2FA(true);
         setLoading(false);
         return;
@@ -148,7 +148,7 @@ export function LoginForm() {
       <TwoFactorModal
         open={show2FA}
         onClose={() => setShow2FA(false)}
-        sessionId={tempSessionId}
+        authJobId={authJobId}
         onSuccess={handle2FASuccess}
       />
     </>

@@ -17,11 +17,11 @@ import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 interface TwoFactorModalProps {
   open: boolean;
   onClose: () => void;
-  sessionId: string;
+  authJobId: string;
   onSuccess: () => void;
 }
 
-export function TwoFactorModal({ open, onClose, sessionId, onSuccess }: TwoFactorModalProps) {
+export function TwoFactorModal({ open, onClose, authJobId, onSuccess }: TwoFactorModalProps) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -35,7 +35,7 @@ export function TwoFactorModal({ open, onClose, sessionId, onSuccess }: TwoFacto
       const response = await fetch('/api/auth/verify-2fa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, code }),
+        body: JSON.stringify({ authJobId, code }),
       });
 
       const data = await response.json();
