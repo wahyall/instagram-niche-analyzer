@@ -9,7 +9,8 @@
     "lint": "eslint",
     "worker": "npx tsx workers/scrapeWorker.ts",
     "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down",
+    "postinstall": "npx playwright install chromium --with-deps"
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.16.2",
