@@ -1,0 +1,18 @@
+FROM mcr.microsoft.com/playwright:v1.57.0-noble
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev for tsx)
+RUN npm install
+
+# Copy the rest of the code
+COPY . .
+
+# Expose port for health check
+EXPOSE 3001
+
+# Run the worker
+CMD ["npm", "run", "worker"]
