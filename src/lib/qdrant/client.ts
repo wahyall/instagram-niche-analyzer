@@ -1,6 +1,7 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 const QDRANT_URL = process.env.QDRANT_URL || "http://localhost:6333";
+const QDRANT_API_KEY = process.env.QDRANT_API_KEY;
 const COLLECTION_NAME = "instagram-profiles";
 const VECTOR_SIZE = 384; // all-MiniLM-L6-v2 dimension (via @xenova/transformers)
 
@@ -8,7 +9,11 @@ let qdrantClient: QdrantClient | null = null;
 
 export function getQdrantClient(): QdrantClient {
   if (!qdrantClient) {
-    qdrantClient = new QdrantClient({ url: QDRANT_URL });
+    // Support both local (no API key) and cloud (with API key) deployments
+    qdrantClient = new QdrantClient({
+      url: QDRANT_URL,
+      ...(QDRANT_API_KEY && { apiKey: QDRANT_API_KEY }),
+    });
   }
   return qdrantClient;
 }

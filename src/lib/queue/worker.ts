@@ -6,10 +6,8 @@ import {
   releaseScraperForSession,
 } from "../scraper/session";
 import { Profile, Post, Job as JobModel } from "../db/models";
-import {
-  analyzeAndUpdateProfile,
-  createProfileEmbedding,
-} from "../ai/embeddings";
+import { addToBuffer, shouldProcessBatch, BUFFER_THRESHOLD } from "./aiAnalysisBuffer";
+import { processBatch, processJobRemaining } from "./aiAnalysisWorker";
 import connectDB from "../db/mongodb";
 import type { ScrapeJobData, InstagramProfile, InstagramPost } from "@/types";
 
@@ -73,29 +71,15 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
         console.log("Profile", profileData);
         console.log("Posts", posts);
 
-        // Analyze interests and niche
-        const analysis = await analyzeAndUpdateProfile(
-          {
-            ...profileData,
-            sessionId,
-            scrapedAt: new Date(),
-            scrapedDepth: depth,
-            interests: [],
-            followers: [],
-            following: [],
-          },
-          posts
-        );
-
-        // Save profile to database
+        // Save profile to database (without interests/niche initially)
         const profile: InstagramProfile = {
           ...profileData,
           sessionId,
           scrapedAt: new Date(),
           scrapedDepth: depth,
           parentUsername,
-          interests: analysis.interests,
-          niche: analysis.niche,
+          interests: [],
+          niche: undefined,
           followers: [],
           following: [],
         };
@@ -112,12 +96,18 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
           });
         }
 
-        // Create embedding for RAG
-        try {
-          await createProfileEmbedding(profile, posts);
-        } catch (embeddingError) {
-          console.error("Error creating embedding:", embeddingError);
-          // Don't fail the job if embedding fails
+        // Add profile to AI analysis buffer instead of analyzing directly
+        const bufferSize = await addToBuffer(profile, posts, jobId);
+
+        // Trigger batch processing if buffer threshold reached
+        if (bufferSize >= BUFFER_THRESHOLD) {
+          console.log(
+            `[Worker] Buffer threshold reached (${bufferSize}), triggering batch processing`
+          );
+          // Process batch asynchronously (don't await to avoid blocking scraping)
+          processBatch().catch((err) =>
+            console.error("[Worker] Batch processing error:", err)
+          );
         }
 
         // Update job progress
@@ -252,6 +242,22 @@ async function checkAndCompleteJob(jobId: string): Promise<void> {
 
   // If all profiles have been processed
   if (totalProcessed >= job.totalProfiles && job.totalProfiles > 0) {
+    // Flush and process any remaining profiles in the buffer for this job
+    console.log(`[Worker] Job ${jobId} completing, flushing remaining buffer`);
+    try {
+      const processedCount = await processJobRemaining(jobId);
+      if (processedCount > 0) {
+        console.log(
+          `[Worker] Processed ${processedCount} remaining profiles for job ${jobId}`
+        );
+      }
+    } catch (flushError) {
+      console.error(
+        `[Worker] Error flushing buffer for job ${jobId}:`,
+        flushError
+      );
+    }
+
     const status =
       job.failedProfiles === job.totalProfiles ? "failed" : "completed";
 

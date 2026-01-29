@@ -157,7 +157,12 @@ export class InstagramScraper {
       await randomDelay(500, 1000);
 
       // Click login button (locator.click waits for visible/enabled/stable)
-      const loginButton = this.page.locator('[data-visualcompletion="ignore"]').first();
+      const loginButton = this.page.locator('[data-visualcompletion="ignore"]').first() || this.page.locator('button[type="submit"]').first();
+
+      if (!loginButton) {
+        throw new Error("Login button not found");
+      }
+
       await loginButton.waitFor({ state: "visible", timeout: 15000 });
 
       console.log("[Login] Clicking login button...");

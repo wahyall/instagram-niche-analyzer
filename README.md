@@ -168,6 +168,63 @@ npm start
 └───────────────────────────────────────────────────────────────┘
 ```
 
+## Deployment to Vercel
+
+This app can be deployed to Vercel with some architectural considerations.
+
+### Important Limitations
+
+1. **Background Workers**: The scrape worker (`npm run worker`) uses BullMQ and runs as a long-lived process. Vercel serverless functions have execution time limits, so the **worker cannot run on Vercel**.
+
+2. **Playwright**: Playwright's browser binaries are too large for Vercel's serverless environment.
+
+### Recommended Architecture for Production
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         VERCEL                              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Next.js App (Frontend + API Routes)                 │   │
+│  │  - /api/chat, /api/profiles, /api/stats, etc.       │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ MongoDB Atlas │   │ Upstash Redis │   │ Qdrant Cloud  │
+│   (Free)      │   │   (Free)      │   │   (Free)      │
+└───────────────┘   └───────────────┘   └───────────────┘
+                              │
+                              ▼
+        ┌─────────────────────────────────────────────┐
+        │     Railway / Render / VPS                  │
+        │     (Worker Process - npm run worker)       │
+        └─────────────────────────────────────────────┘
+```
+
+### Cloud Services Setup
+
+1. **MongoDB Atlas** (Free Tier): https://www.mongodb.com/atlas
+2. **Upstash Redis** (Free Tier): https://upstash.com
+3. **Qdrant Cloud** (Free Tier): https://cloud.qdrant.io
+
+### Deploy to Vercel
+
+1. Push code to GitHub
+2. Go to [vercel.com](https://vercel.com) and import the repository
+3. Add environment variables (see `.env.example`)
+4. Deploy
+
+### Deploy Worker to Railway
+
+1. Go to [railway.app](https://railway.app)
+2. Create a new project from GitHub
+3. Set start command: `npm run worker`
+4. Add the same environment variables
+
+See `.env.example` for all required environment variables.
+
 ## Important Notes
 
 ⚠️ **Rate Limiting**: Instagram memiliki rate limit yang ketat. App ini sudah mengimplementasikan delay antar request, tapi tetap gunakan dengan bijak.

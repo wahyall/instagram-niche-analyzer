@@ -222,6 +222,107 @@ Keep interests specific and relevant. The niche should be a single category like
   }
 }
 
+export interface ProfileAnalysisInput {
+  username: string;
+  bio: string;
+  captions: string[];
+}
+
+export interface ProfileAnalysisResult {
+  username: string;
+  interests: string[];
+  niche: string;
+}
+
+/**
+ * Analyze multiple profiles in a single API call for efficiency
+ * @param profiles Array of profiles with bio and captions
+ * @returns Array of analysis results with interests and niche for each profile
+ */
+export async function analyzeInterestsBatch(
+  profiles: ProfileAnalysisInput[]
+): Promise<ProfileAnalysisResult[]> {
+  if (profiles.length === 0) {
+    return [];
+  }
+
+  const client = getOpenAIClient();
+
+  // Build the prompt with all profiles
+  const profilesText = profiles
+    .map((profile, index) => {
+      const captionsText = profile.captions.slice(0, 10).join("\n---\n");
+      return `Profile ${index + 1} (${profile.username}):
+Bio: ${profile.bio || "No bio available"}
+Captions:
+${captionsText || "No captions available"}`;
+    })
+    .join("\n\n---\n\n");
+
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    {
+      role: "system",
+      content: `You are an expert at analyzing Instagram profiles to determine user interests and niche.
+Analyze the provided profiles and for each one identify:
+1. A list of specific interests (e.g., "fitness", "photography", "travel", "fashion")
+2. The primary niche or category this account belongs to
+
+Respond in JSON format with an array of results matching the order of profiles provided:
+{
+  "results": [
+    {"interests": ["interest1", "interest2", ...], "niche": "primary niche"},
+    {"interests": ["interest1", "interest2", ...], "niche": "primary niche"},
+    ...
+  ]
+}
+
+Keep interests specific and relevant. The niche should be a single category like "Fitness & Health", "Fashion & Beauty", "Technology", "Food & Cooking", "Travel", "Business & Entrepreneurship", etc.
+
+IMPORTANT: Return exactly one result per profile in the same order they were provided.`,
+    },
+    {
+      role: "user",
+      content: `Analyze the following ${profiles.length} Instagram profiles:\n\n${profilesText}`,
+    },
+  ];
+
+  try {
+    const response = await withRetryAndFallback(
+      async (model) =>
+        client.chat.completions.create({
+          model,
+          messages,
+          response_format: { type: "json_object" },
+          temperature: 0.3,
+        }),
+      "analyzeInterestsBatch"
+    );
+
+    const content = response.choices[0]?.message?.content || "{}";
+    const parsed = parseJSONResponse(content);
+
+    // Validate and map results
+    const results = Array.isArray(parsed.results) ? parsed.results : [];
+
+    return profiles.map((profile, index) => {
+      const result = results[index] || {};
+      return {
+        username: profile.username,
+        interests: Array.isArray(result.interests) ? result.interests : [],
+        niche: typeof result.niche === "string" ? result.niche : "Unknown",
+      };
+    });
+  } catch (error) {
+    console.error("[analyzeInterestsBatch] Failed after all retries:", error);
+    // Return default values for all profiles on failure
+    return profiles.map((profile) => ({
+      username: profile.username,
+      interests: [],
+      niche: "Unknown",
+    }));
+  }
+}
+
 export async function chatWithContext(
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
   context: string

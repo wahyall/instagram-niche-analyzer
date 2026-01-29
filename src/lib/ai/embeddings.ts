@@ -1,5 +1,5 @@
 import { generateEmbedding, generateEmbeddings } from "./localEmbeddings";
-import { analyzeInterests } from "./openai";
+import { analyzeInterests, analyzeInterestsBatch, ProfileAnalysisInput, ProfileAnalysisResult } from "./openai";
 import {
   upsertProfileEmbedding,
   upsertBulkProfileEmbeddings,
@@ -72,6 +72,36 @@ export async function analyzeAndUpdateProfile(
   const analysis = await analyzeInterests(profile.bio || "", captions);
 
   return analysis;
+}
+
+/**
+ * Batch analyze multiple profiles in a single API call
+ * @param profilesData Array of profiles with their posts
+ * @returns Array of analysis results with username, interests, and niche
+ */
+export async function analyzeAndUpdateProfilesBatch(
+  profilesData: Array<{
+    profile: InstagramProfile;
+    posts: InstagramPost[];
+  }>
+): Promise<ProfileAnalysisResult[]> {
+  if (profilesData.length === 0) {
+    return [];
+  }
+
+  // Prepare input for batch analysis
+  const analysisInputs: ProfileAnalysisInput[] = profilesData.map(
+    ({ profile, posts }) => ({
+      username: profile.username,
+      bio: profile.bio || "",
+      captions: posts.filter((p) => p.caption).map((p) => p.caption),
+    })
+  );
+
+  // Call batch analysis
+  const results = await analyzeInterestsBatch(analysisInputs);
+
+  return results;
 }
 
 function buildProfileText(
