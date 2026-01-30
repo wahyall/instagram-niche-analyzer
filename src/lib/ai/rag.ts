@@ -469,7 +469,7 @@ export async function getComprehensiveStats(sessionId: string): Promise<{
   // Top profiles by followers
   const topProfilesByFollowers = profiles
     .sort((a, b) => b.followersCount - a.followersCount)
-    .slice(0, 10)
+    .slice(0, 100)
     .map((p) => ({
       username: p.username,
       followers: p.followersCount,
@@ -507,51 +507,207 @@ function generateContentSuggestions(
   const nicheSuggestions: Record<string, string[]> = {
     "Fitness & Health": [
       "Tutorial workout routine yang mudah diikuti",
-      "Tips nutrisi dan meal prep",
-      "Transformation story dan motivasi",
-      "Review produk fitness/suplemen",
+      "Tips nutrisi, meal prep, dan healthy lifestyle",
+      "Transformation story dan motivasi fit journey",
+      "Review produk fitness, suplemen, dan alat olahraga",
+      "Panduan olahraga di rumah tanpa alat",
+      "Konten challenge seperti 30-day abs/plank/squat",
+    ],
+    "Yoga & Meditation": [
+      "Tutorial pose yoga untuk pemula",
+      "Meditasi singkat untuk relaksasi atau fokus",
+      "Sharing pengalaman journey meditasi",
+      "Tips mindfulness & stress relief",
+    ],
+    "Bodybuilding & Strength": [
+      "Program latihan membangun otot",
+      "Teknik angkat beban & safety tips",
+      "Makanan pendukung bulking/cutting",
+      "Rekomendasi gym gear & equipment",
+    ],
+    "Parenting & Family": [
+      "Tips parenting dan bonding family",
+      "Ide aktivitas anak di rumah",
+      "Review perlengkapan bayi dan mainan edukasi",
+      "Diskusi seputar tumbuh kembang anak",
     ],
     "Fashion & Beauty": [
-      "OOTD dan styling tips",
+      "OOTD, styling tips, dan mix & match baju",
       "Tutorial makeup untuk berbagai occasion",
-      "Review produk skincare/makeup",
-      "Haul dan try-on session",
+      "Review skincare & beauty product terbaru",
+      "Haul, try-on session, dan fashion unboxing",
+      "Inspirasi hijab dan modest fashion",
+    ],
+    "Men's Fashion": [
+      "Inspirasi outfit pria",
+      "Tips grooming & perawatan pria",
+      "Review sneaker & jam tangan",
+      "Campus/casual/street style lookbook",
+    ],
+    "Hijab & Modest": [
+      "Tutorial hijab simple & kondangan",
+      "Rekomendasi brand modest fashion",
+      "OOTD cocok untuk hijabers",
+      "Tips menjaga kesehatan rambut berhijab",
     ],
     Technology: [
-      "Review gadget dan tech tips",
-      "Tutorial software/app",
-      "Tech news dan trend update",
-      "Unboxing dan first impression",
+      "Review gadget & tech tips",
+      "Tutorial software/app & hacks",
+      "Tech news, situs bermanfaat & trend update",
+      "Unboxing, hands-on demo, dan first impression",
+      "Gadget comparison & rekomendasi smart home",
+    ],
+    "Programming & Coding": [
+      "Tips belajar pemrograman untuk pemula",
+      "Tutorial coding bahasa populer (JS, Python, dsb)",
+      "Sharing project open source & portofolio",
+      "Review course/certification coding",
     ],
     "Food & Cooking": [
-      "Recipe video step-by-step",
-      "Restaurant review dan food recommendation",
-      "Meal prep ideas",
-      "Cooking tips dan kitchen hacks",
+      "Step-by-step masak menu harian",
+      "Ide bekal sehat & simple recipes",
+      "Review restoran, cafe, atau jajanan kekinian",
+      "Challenge masak modal minimal/top 3 menu viral",
+      "Cooking hacks dan kitchen organization",
+    ],
+    "Baking & Dessert": [
+      "Tutorial buat kue & dessert",
+      "Tips membuat kue anti gagal",
+      "Review peralatan baking",
+      "Resep camilan sehat & kekinian",
     ],
     Travel: [
-      "Travel vlog dan destination guide",
-      "Budget travel tips",
-      "Hidden gems dan local recommendation",
-      "Packing tips dan travel essentials",
+      "Travel vlog & destination guide",
+      "Budget travel tips dan itinerary hemat",
+      "Hidden gems & local recommendation",
+      "Packing tips, travel essentials, and travel hacks",
+      "Konten solo traveling / female traveler",
+      "Wisata alam Indonesia & city guide",
+    ],
+    "Outdoor & Adventure": [
+      "Tips hiking, camping, dan gear review",
+      "Travel trip ke tempat anti-mainstream",
+      "Drone footage & nature visual",
+      "Safety tips di alam bebas",
     ],
     "Business & Entrepreneurship": [
-      "Tips bisnis dan strategi growth",
-      "Behind the scene bisnis",
-      "Success story dan lessons learned",
-      "Productivity tips dan tools recommendation",
+      "Tips bisnis & digital marketing",
+      "Behind the scene bisnis UMKM",
+      "Success story entrepreneur lokal",
+      "Strategi growth, branding, & product development",
+      "Cara mengatur keuangan bisnis",
+      "Story kegagalan bisnis & takeawaysnya",
+    ],
+    "Personal Finance & Investment": [
+      "Tips menabung & budget ala millennials",
+      "Tutorial investasi saham, crypto, reksa dana",
+      "Review aplikasi keuangan/budgeting",
+      "Cerita pengalaman coba side hustle",
     ],
     Entertainment: [
-      "Konten hiburan dan comedy",
-      "Review film/series/musik",
-      "Trending topic dan pop culture",
-      "Challenge dan trend participation",
+      "Konten hiburan & komedi (sketsa/parodi)",
+      "Review film/series/musik, rekomendasi tontonan",
+      "Trending topic dan pop culture news",
+      "Ikut challenge & collab seru",
+      "E-sport & gaming highlight",
+    ],
+    "Lifestyle & Daily Vlog": [
+      "Day in my life: morning/evening routine",
+      "Behind the scene aktivitas harian",
+      "Tips produktivitas & life hacks",
+      "Story waktu pindah kota/negeri",
+      "Q&A dan sharing pengalaman personal",
     ],
     Education: [
-      "Educational content sesuai expertise",
-      "Tips dan tricks yang useful",
+      "Konten edukasi sesuai bidang keahlian",
+      "Tips belajar efektif dan study hacks",
       "Myth-busting dan fact-checking",
+      "Bahasa asing: tips dan mini lesson",
       "Q&A session dengan audience",
+    ],
+    Science: [
+      "Fakta unik & fun science experiment",
+      "Penjelasan sains populer dengan cara mudah",
+      "Explainer: isu lingkungan dan teknologi",
+      "Book summary sains populer",
+    ],
+    "Pets & Animals": [
+      "Vlog keseharian dengan peliharaan",
+      "Tips merawat anjing/kucing/burung dsb",
+      "Konten rescue/adopsi binatang",
+      "Review produk/pakan hewan",
+    ],
+    "Automotive & Motor": [
+      "Review mobil/motor terbaru",
+      "Tutorial perawatan kendaraan",
+      "Konten touring dan event otomotif",
+      "Modifikasi kendaraan & tips custom",
+    ],
+    "Photography & Videography": [
+      "Photography/videography tips & trik",
+      "Tutorial editing foto/video",
+      "Gear review (kamera, lensa, gimbal)",
+      "Challenge foto/vlog tema tertentu",
+    ],
+    "Art & Design": [
+      "Speed drawing/painting video",
+      "Tutorial digital art (Procreate, Photoshop)",
+      "Review alat gambar & digital tools",
+      "Sharing portofolio & creative process",
+    ],
+    "Career & Productivity": [
+      "Tips karir, interview & CV",
+      "Portfolio review & personal branding",
+      "Produktivitas dan time management hacks",
+      "Cerita fail/success job hunting",
+    ],
+    "Relationship & Dating": [
+      "Tips hubungan sehat & komunikasi",
+      "Cerita pengalaman LDR/relationship advice",
+      "Konten dating humor/komedi",
+      "Q&A relationship dilemma",
+    ],
+    "Self-Development & Motivation": [
+      "Motivational short story & quotes",
+      "Journaling/Mindset growth content",
+      "Review buku pengembangan diri",
+      "Goal setting dan evaluasi bulanan",
+    ],
+    "Games & Esports": [
+      "Gameplay highlight dan tips",
+      "Review game baru & update patch",
+      "Konten turnamen esports",
+      "Q&A komunitas game tertentu",
+    ],
+    "Environment & Sustainability": [
+      "Zero waste living & eco friendly tips",
+      "Sustainability challenge",
+      "Edukasi daur ulang dan upcycling",
+      "Movement lingkungan lokal",
+    ],
+    "Comics & Pop Culture": [
+      "Review manga, komik, dan anime",
+      "Diskusi teori dan pop culture easter eggs",
+      "Resensi merchandise & toys",
+      "Fan art dan challenge bertema anime/comic",
+    ],
+    "Spirituality & Religion": [
+      "Tips ibadah harian/mingguan",
+      "Konten sharing hikmah dan renungan",
+      "Cerita pengalaman spiritual",
+      "Q&A tanya jawab seputar agama",
+    ],
+    "Property & Home Decor": [
+      "Tips desain rumah & interior minimalis",
+      "Review perabot rumah tangga",
+      "DIY dekorasi rumah/apartemen",
+      "Home tour & make over",
+    ],
+    "Gardening & Urban Farming": [
+      "Tips berkebun di lahan sempit",
+      "Tutorial hidroponik/urban farming",
+      "Review alat tanam/pupuk organik",
+      "Challenge panen hasil sendiri",
     ],
   };
 
@@ -593,15 +749,15 @@ async function buildComprehensiveContext(
 
 Total Profiles Scraped: ${stats.totalProfiles}
 
---- DISTRIBUSI NICHE (Top 10) ---
+--- DISTRIBUSI NICHE (Top 100) ---
 ${stats.nicheDistribution
-  .slice(0, 10)
+  .slice(0, 100)
   .map((n, i) => `${i + 1}. ${n.niche}: ${n.count} profiles (${n.percentage}%)`)
   .join("\n")}
 
---- DISTRIBUSI MINAT/INTEREST (Top 15) ---
+--- DISTRIBUSI MINAT/INTEREST (Top 100) ---
 ${stats.interestDistribution
-  .slice(0, 15)
+  .slice(0, 100)
   .map(
     (i, idx) =>
       `${idx + 1}. ${i.interest}: ${i.count} profiles (${i.percentage}%)`
@@ -623,7 +779,7 @@ ${stats.interestDistribution
     (stats.privateCount / stats.totalProfiles) * 100
   )}%)
 
---- TOP 10 PROFILES BY FOLLOWERS ---
+--- TOP 100 PROFILES BY FOLLOWERS ---
 ${stats.topProfilesByFollowers
   .map(
     (p, i) =>
@@ -633,7 +789,7 @@ ${stats.topProfilesByFollowers
   )
   .join("\n")}
 
---- SARAN KONTEN BERDASARKAN DATA ---
+--- SARAN KONTEN BERDASARKAN DATA (JUGA BERIKAN SARAN KONTEN DI LUAR DATA INI) ---
 ${stats.contentSuggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
 === PROFILE RELEVAN DENGAN PERTANYAAN ===

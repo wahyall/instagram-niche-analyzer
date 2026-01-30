@@ -176,7 +176,7 @@ export async function analyzeInterests(
       role: "system",
       content: `You are an expert at analyzing Instagram profiles to determine user interests and niche.
 Analyze the provided bio and post captions to identify:
-1. A list of specific interests (e.g., "fitness", "photography", "travel", "fashion")
+1. A list of specific interests (e.g., "fitness", "photography", "travel", "fashion", "relationship", "self-development", "games", "environment", "comics", "spirituality", "property", "gardening", etc.)
 2. The primary niche or category this account belongs to
 
 Respond in JSON format:
@@ -185,7 +185,7 @@ Respond in JSON format:
   "niche": "primary niche"
 }
 
-Keep interests specific and relevant. The niche should be a single category like "Fitness & Health", "Fashion & Beauty", "Technology", "Food & Cooking", "Travel", "Business & Entrepreneurship", etc.`,
+Keep interests specific and relevant. The niche should be a single category like "Fitness & Health", "Fashion & Beauty", "Technology", "Food & Cooking", "Travel", "Business & Entrepreneurship", "Relationship & Dating", "Self-Development & Motivation", "Games & Esports", "Environment & Sustainability", "Comics & Pop Culture", "Spirituality & Religion", "Property & Home Decor", "Gardening & Urban Farming", etc.`,
     },
     {
       role: "user",
@@ -264,7 +264,7 @@ ${captionsText || "No captions available"}`;
       role: "system",
       content: `You are an expert at analyzing Instagram profiles to determine user interests and niche.
 Analyze the provided profiles and for each one identify:
-1. A list of specific interests (e.g., "fitness", "photography", "travel", "fashion")
+1. A list of specific interests (e.g., "fitness", "photography", "travel", "fashion", "relationship", "self-development", "games", "environment", "comics", "spirituality", "property", "gardening", etc.)
 2. The primary niche or category this account belongs to
 
 Respond in JSON format with an array of results matching the order of profiles provided:
@@ -276,7 +276,7 @@ Respond in JSON format with an array of results matching the order of profiles p
   ]
 }
 
-Keep interests specific and relevant. The niche should be a single category like "Fitness & Health", "Fashion & Beauty", "Technology", "Food & Cooking", "Travel", "Business & Entrepreneurship", etc.
+Keep interests specific and relevant. The niche should be a single category like "Fitness & Health", "Fashion & Beauty", "Technology", "Food & Cooking", "Travel", "Business & Entrepreneurship", "Relationship & Dating", "Self-Development & Motivation", "Games & Esports", "Environment & Sustainability", "Comics & Pop Culture", "Spirituality & Religion", "Property & Home Decor", "Gardening & Urban Farming", etc.
 
 IMPORTANT: Return exactly one result per profile in the same order they were provided.`,
     },
