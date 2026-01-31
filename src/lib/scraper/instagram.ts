@@ -14,7 +14,7 @@ const RATE_LIMIT = {
 
 function randomDelay(
   min: number = RATE_LIMIT.minDelay,
-  max: number = RATE_LIMIT.maxDelay
+  max: number = RATE_LIMIT.maxDelay,
 ): Promise<void> {
   const delay = Math.floor(Math.random() * (max - min + 1)) + min;
   return new Promise((resolve) => setTimeout(resolve, delay));
@@ -85,7 +85,7 @@ export class InstagramScraper {
 
   async login(
     username: string,
-    password: string
+    password: string,
   ): Promise<{
     success: boolean;
     requires2FA: boolean;
@@ -110,7 +110,7 @@ export class InstagramScraper {
       // Accept cookies if dialog appears
       try {
         const cookieButton = await this.page.$(
-          'button:has-text("Allow all cookies"), button:has-text("Allow essential and optional cookies")'
+          'button:has-text("Allow all cookies"), button:has-text("Allow essential and optional cookies")',
         );
         if (cookieButton) {
           await cookieButton.click();
@@ -121,23 +121,23 @@ export class InstagramScraper {
       }
 
       // Wait for login form to be visible
-      try {
-        await this.page.waitForSelector('input[name="email"]', {
-          timeout: 10000,
-        });
-      } catch {
-        // Try alternate selectors for login form
-        await this.page.waitForSelector(
-          'input[aria-label="Phone number, username, or email"]',
-          { timeout: 5000 }
-        );
-      }
+      // try {
+      //   await this.page.waitForSelector('input[name="email"]', {
+      //     timeout: 10000,
+      //   });
+      // } catch {
+      //   // Try alternate selectors for login form
+      //   await this.page.waitForSelector(
+      //     'input[aria-label="Phone number, username, or email"]',
+      //     { timeout: 5000 }
+      //   );
+      // }
 
       // Fill login form
       const usernameInput =
         (await this.page.$('input[name="email"]')) ||
         (await this.page.$(
-          'input[aria-label="Phone number, username, or email"]'
+          'input[aria-label="Phone number, username, or email"]',
         ));
       if (usernameInput) {
         await usernameInput.fill(username);
@@ -157,7 +157,9 @@ export class InstagramScraper {
       await randomDelay(500, 1000);
 
       // Click login button (locator.click waits for visible/enabled/stable)
-      const loginButton = this.page.locator('[data-visualcompletion="ignore"]').first() || this.page.locator('button[type="submit"]').first();
+      const loginButton =
+        this.page.locator('[data-visualcompletion="ignore"]').first() ||
+        this.page.locator('button[type="submit"]').first();
 
       if (!loginButton) {
         throw new Error("Login button not found");
@@ -176,11 +178,11 @@ export class InstagramScraper {
         }),
         this.page.waitForSelector(
           'svg[aria-label="Home"], a[href="/"], nav[role="navigation"]',
-          { timeout: 20000 }
+          { timeout: 20000 },
         ),
         this.page.waitForSelector(
           'input[name="verificationCode"], input[name="security_code"]',
-          { timeout: 20000 }
+          { timeout: 20000 },
         ),
       ]).catch(() => {});
 
@@ -202,7 +204,7 @@ export class InstagramScraper {
         try {
           await this.page.waitForSelector(
             'input[name="verificationCode"], input[name="security_code"]',
-            { timeout: 5000 }
+            { timeout: 5000 },
           );
           return {
             success: false,
@@ -219,7 +221,7 @@ export class InstagramScraper {
 
       // Check for login error on the page
       const errorElement = await this.page.$(
-        '[data-testid="login-error-message"], #slfErrorAlert, div[role="alert"]'
+        '[data-testid="login-error-message"], #slfErrorAlert, div[role="alert"]',
       );
       if (errorElement) {
         const errorText = await errorElement.textContent();
@@ -249,7 +251,7 @@ export class InstagramScraper {
       try {
         await this.page.waitForSelector(
           'svg[aria-label="Home"], a[href="/"], nav[role="navigation"]',
-          { timeout: 10000 }
+          { timeout: 10000 },
         );
         this.isLoggedIn = true;
         this.resourceBlockMode = "scrape";
@@ -262,7 +264,7 @@ export class InstagramScraper {
       } catch {
         // Check one more time for 2FA
         const twoFactorInput = await this.page.$(
-          'input[name="verificationCode"], input[name="security_code"]'
+          'input[name="verificationCode"], input[name="security_code"]',
         );
         if (twoFactorInput) {
           return {
@@ -350,7 +352,7 @@ export class InstagramScraper {
       try {
         await this.page.waitForSelector(
           'svg[aria-label="Home"], a[href="/"], nav[role="navigation"]',
-          { timeout: 10000 }
+          { timeout: 10000 },
         );
         this.isLoggedIn = true;
         const cookies = await this.getCookies();
@@ -358,7 +360,7 @@ export class InstagramScraper {
       } catch {
         // Check for error message
         const errorElement = await this.page.$(
-          'div[role="alert"], #slfErrorAlert'
+          'div[role="alert"], #slfErrorAlert',
         );
         if (errorElement) {
           const errorText = await errorElement.textContent();
@@ -403,7 +405,7 @@ export class InstagramScraper {
 
       // Check if profile exists
       const notFound = await this.page.$(
-        'h2:has-text("Sorry, this page isn\'t available")'
+        'h2:has-text("Sorry, this page isn\'t available")',
       );
       if (notFound) {
         console.log("[scrapeProfile] 404 - Page not found");
@@ -426,7 +428,7 @@ export class InstagramScraper {
       const getMetaContent = async (selector: string): Promise<string> => {
         try {
           const content = await this.page!.$eval(selector, (el) =>
-            el.getAttribute("content")
+            el.getAttribute("content"),
           );
           return content || "";
         } catch {
@@ -435,7 +437,7 @@ export class InstagramScraper {
       };
 
       const ogDescription = await getMetaContent(
-        'meta[property="og:description"]'
+        'meta[property="og:description"]',
       );
       const metaDescription = await getMetaContent('meta[name="description"]');
       const ogTitle = await getMetaContent('meta[property="og:title"]');
@@ -465,10 +467,10 @@ export class InstagramScraper {
       // Extract counts from og:description
       // Format: "698M Followers, 313 Following, 8,272 Posts - See Instagram photos..."
       const followersMatch = ogDescription.match(
-        /([\d,.]+[KMB]?)\s*Followers/i
+        /([\d,.]+[KMB]?)\s*Followers/i,
       );
       const followingMatch = ogDescription.match(
-        /([\d,.]+[KMB]?)\s*Following/i
+        /([\d,.]+[KMB]?)\s*Following/i,
       );
       const postsMatch = ogDescription.match(/([\d,.]+[KMB]?)\s*Posts/i);
 
@@ -532,7 +534,7 @@ export class InstagramScraper {
         try {
           profilePicUrl = await this.page.$eval(
             'img[alt*="profile picture"]',
-            (el) => el.getAttribute("src") || ""
+            (el) => el.getAttribute("src") || "",
           );
         } catch {
           profilePicUrl = "";
@@ -557,7 +559,7 @@ export class InstagramScraper {
       let isVerified = false;
       try {
         const verifiedBadge = await this.page.$(
-          'svg[aria-label="Verified"], img[alt="Verified"], [title="Verified"]'
+          'svg[aria-label="Verified"], img[alt="Verified"], [title="Verified"]',
         );
         isVerified = !!verifiedBadge;
       } catch {
@@ -608,15 +610,13 @@ export class InstagramScraper {
     } catch (error) {
       console.error(
         `[scrapeProfile] Error scraping profile ${username}:`,
-        error
+        error,
       );
       return null;
     }
   }
 
-  async scrapeFollowers(
-    username: string
-  ): Promise<string[]> {
+  async scrapeFollowers(username: string): Promise<string[]> {
     if (!this.page || !this.isLoggedIn) {
       throw new Error("Not logged in");
     }
@@ -641,12 +641,12 @@ export class InstagramScraper {
       // Click on followers link using text-based selector
       console.log("[scrapeFollowers] Looking for followers link...");
       const followersLink = await this.page.$(
-        `a[href*="/${username}/followers"], a:has-text("followers")`
+        `a[href*="/${username}/followers"], a:has-text("followers")`,
       );
 
       if (!followersLink) {
         console.log(
-          "[scrapeFollowers] Using text-based click for followers..."
+          "[scrapeFollowers] Using text-based click for followers...",
         );
         await this.page.click('a:has-text("followers")');
       } else {
@@ -663,7 +663,7 @@ export class InstagramScraper {
       const loginPrompt = await this.page.$('button:has-text("Log in")');
       if (loginPrompt) {
         console.error(
-          "[scrapeFollowers] Login prompt detected - session may be invalid"
+          "[scrapeFollowers] Login prompt detected - session may be invalid",
         );
         await this.page.keyboard.press("Escape");
         return [];
@@ -735,11 +735,13 @@ export class InstagramScraper {
         })()
       `);
 
-      console.log(`[scrapeFollowers] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`);
+      console.log(
+        `[scrapeFollowers] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`,
+      );
 
       while (retries < 15) {
         // Scroll the dialog incrementally using multiple strategies
-        const scrollResult = await this.page.evaluate(`
+        const scrollResult = (await this.page.evaluate(`
           (function() {
             function scrollElement(el) {
               const prevScrollTop = el.scrollTop;
@@ -779,11 +781,13 @@ export class InstagramScraper {
 
             return { scrolled: false, atEnd: true, scrollHeight: 0 };
           })()
-        `) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
+        `)) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
 
         // If JS scroll didn't work, try keyboard scroll
         if (!scrollResult.scrolled) {
-          console.log("[scrapeFollowers] JS scroll failed, trying keyboard scroll...");
+          console.log(
+            "[scrapeFollowers] JS scroll failed, trying keyboard scroll...",
+          );
           // Focus the dialog and use Page Down
           await this.page.keyboard.press("PageDown");
           await this.page.waitForTimeout(300);
@@ -793,19 +797,31 @@ export class InstagramScraper {
         if (scrollResult.scrolled) {
           // Wait for potential loading spinner to appear and disappear
           try {
-            await this.page.waitForSelector('div[role="dialog"] [data-visualcompletion="loading-state"]', { 
-              timeout: 500 
-            }).catch(() => {});
-            await this.page.waitForSelector('div[role="dialog"] [data-visualcompletion="loading-state"]', { 
-              state: "hidden", 
-              timeout: 3000 
-            }).catch(() => {});
+            await this.page
+              .waitForSelector(
+                'div[role="dialog"] [data-visualcompletion="loading-state"]',
+                {
+                  timeout: 500,
+                },
+              )
+              .catch(() => {});
+            await this.page
+              .waitForSelector(
+                'div[role="dialog"] [data-visualcompletion="loading-state"]',
+                {
+                  state: "hidden",
+                  timeout: 3000,
+                },
+              )
+              .catch(() => {});
           } catch {
             // Loading spinner might not appear
           }
 
           // Also wait for network to settle
-          await this.page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+          await this.page
+            .waitForLoadState("networkidle", { timeout: 3000 })
+            .catch(() => {});
         }
 
         // Additional delay to let content render
@@ -816,10 +832,13 @@ export class InstagramScraper {
         try {
           newUsernames = await this.page.$$eval(
             'div[role="dialog"] a[href^="/"]',
-            function(links, args) {
-              const { excludeList, targetUser } = args as { excludeList: string[]; targetUser?: string };
+            function (links, args) {
+              const { excludeList, targetUser } = args as {
+                excludeList: string[];
+                targetUser?: string;
+              };
               const names: string[] = [];
-              links.forEach(function(link) {
+              links.forEach(function (link) {
                 const href = link.getAttribute("href");
                 if (!href) return;
 
@@ -838,7 +857,7 @@ export class InstagramScraper {
               });
               return names;
             },
-            { excludeList: excludePaths, targetUser: username }
+            { excludeList: excludePaths, targetUser: username },
           );
         } catch (e) {
           console.log("[scrapeFollowers] Error extracting usernames:", e);
@@ -853,7 +872,8 @@ export class InstagramScraper {
         });
 
         // Check if we've reached the end of the list
-        const scrollHeightUnchanged = scrollResult.scrollHeight === lastScrollHeight;
+        const scrollHeightUnchanged =
+          scrollResult.scrollHeight === lastScrollHeight;
         lastScrollHeight = scrollResult.scrollHeight;
 
         if (followers.length === previousCount) {
@@ -864,13 +884,13 @@ export class InstagramScraper {
             break;
           }
           console.log(
-            `[scrapeFollowers] No new followers found, retry ${retries}/15`
+            `[scrapeFollowers] No new followers found, retry ${retries}/15`,
           );
         } else {
           retries = 0;
           previousCount = followers.length;
           console.log(
-            `[scrapeFollowers] Found ${followers.length} followers so far...`
+            `[scrapeFollowers] Found ${followers.length} followers so far...`,
           );
         }
 
@@ -884,22 +904,20 @@ export class InstagramScraper {
 
       const result = followers;
       console.log(
-        `[scrapeFollowers] Complete. Extracted ${result.length} followers`
+        `[scrapeFollowers] Complete. Extracted ${result.length} followers`,
       );
 
       return result;
     } catch (error) {
       console.error(
         `[scrapeFollowers] Error scraping followers for ${username}:`,
-        error
+        error,
       );
       return [];
     }
   }
 
-  async scrapeFollowing(
-    username: string
-  ): Promise<string[]> {
+  async scrapeFollowing(username: string): Promise<string[]> {
     if (!this.page || !this.isLoggedIn) {
       throw new Error("Not logged in");
     }
@@ -924,12 +942,12 @@ export class InstagramScraper {
       // Click on following link using text-based selector
       console.log("[scrapeFollowing] Looking for following link...");
       const followingLink = await this.page.$(
-        `a[href*="/${username}/following"], a:has-text("following")`
+        `a[href*="/${username}/following"], a:has-text("following")`,
       );
 
       if (!followingLink) {
         console.log(
-          "[scrapeFollowing] Using text-based click for following..."
+          "[scrapeFollowing] Using text-based click for following...",
         );
         await this.page.click('a:has-text("following")');
       } else {
@@ -946,7 +964,7 @@ export class InstagramScraper {
       const loginPrompt = await this.page.$('button:has-text("Log in")');
       if (loginPrompt) {
         console.error(
-          "[scrapeFollowing] Login prompt detected - session may be invalid"
+          "[scrapeFollowing] Login prompt detected - session may be invalid",
         );
         await this.page.keyboard.press("Escape");
         return [];
@@ -1018,11 +1036,13 @@ export class InstagramScraper {
         })()
       `);
 
-      console.log(`[scrapeFollowing] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`);
+      console.log(
+        `[scrapeFollowing] Scroll container detection: ${JSON.stringify(scrollContainerFound)}`,
+      );
 
       while (retries < 15) {
         // Scroll the dialog incrementally using multiple strategies
-        const scrollResult = await this.page.evaluate(`
+        const scrollResult = (await this.page.evaluate(`
           (function() {
             function scrollElement(el) {
               const prevScrollTop = el.scrollTop;
@@ -1062,11 +1082,13 @@ export class InstagramScraper {
 
             return { scrolled: false, atEnd: true, scrollHeight: 0 };
           })()
-        `) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
+        `)) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
 
         // If JS scroll didn't work, try keyboard scroll
         if (!scrollResult.scrolled) {
-          console.log("[scrapeFollowing] JS scroll failed, trying keyboard scroll...");
+          console.log(
+            "[scrapeFollowing] JS scroll failed, trying keyboard scroll...",
+          );
           // Focus the dialog and use Page Down
           await this.page.keyboard.press("PageDown");
           await this.page.waitForTimeout(2000);
@@ -1076,19 +1098,31 @@ export class InstagramScraper {
         if (scrollResult.scrolled) {
           // Wait for potential loading spinner to appear and disappear
           try {
-            await this.page.waitForSelector('div[role="dialog"] svg[aria-label="Loading..."]', { 
-              timeout: 500 
-            }).catch(() => {});
-            await this.page.waitForSelector('div[role="dialog"] svg[aria-label="Loading..."]', { 
-              state: "hidden", 
-              timeout: 3000 
-            }).catch(() => {});
+            await this.page
+              .waitForSelector(
+                'div[role="dialog"] svg[aria-label="Loading..."]',
+                {
+                  timeout: 500,
+                },
+              )
+              .catch(() => {});
+            await this.page
+              .waitForSelector(
+                'div[role="dialog"] svg[aria-label="Loading..."]',
+                {
+                  state: "hidden",
+                  timeout: 3000,
+                },
+              )
+              .catch(() => {});
           } catch {
             // Loading spinner might not appear
           }
 
           // Also wait for network to settle
-          await this.page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+          await this.page
+            .waitForLoadState("networkidle", { timeout: 3000 })
+            .catch(() => {});
         }
 
         // Additional delay to let content render
@@ -1099,10 +1133,13 @@ export class InstagramScraper {
         try {
           newUsernames = await this.page.$$eval(
             'div[role="dialog"] a[href^="/"]',
-            function(links, args) {
-              const { excludeList, targetUser } = args as { excludeList: string[]; targetUser: string };
+            function (links, args) {
+              const { excludeList, targetUser } = args as {
+                excludeList: string[];
+                targetUser: string;
+              };
               const names: string[] = [];
-              links.forEach(function(link) {
+              links.forEach(function (link) {
                 const href = link.getAttribute("href");
                 if (!href) return;
 
@@ -1121,7 +1158,7 @@ export class InstagramScraper {
               });
               return names;
             },
-            { excludeList: excludePaths, targetUser: username }
+            { excludeList: excludePaths, targetUser: username },
           );
         } catch (e) {
           console.log("[scrapeFollowing] Error extracting usernames:", e);
@@ -1136,7 +1173,8 @@ export class InstagramScraper {
         });
 
         // Check if we've reached the end of the list
-        const scrollHeightUnchanged = scrollResult.scrollHeight === lastScrollHeight;
+        const scrollHeightUnchanged =
+          scrollResult.scrollHeight === lastScrollHeight;
         lastScrollHeight = scrollResult.scrollHeight;
 
         if (following.length === previousCount) {
@@ -1147,13 +1185,13 @@ export class InstagramScraper {
             break;
           }
           console.log(
-            `[scrapeFollowing] No new following found, retry ${retries}/15`
+            `[scrapeFollowing] No new following found, retry ${retries}/15`,
           );
         } else {
           retries = 0;
           previousCount = following.length;
           console.log(
-            `[scrapeFollowing] Found ${following.length} following so far...`
+            `[scrapeFollowing] Found ${following.length} following so far...`,
           );
         }
 
@@ -1167,14 +1205,14 @@ export class InstagramScraper {
 
       const result = following;
       console.log(
-        `[scrapeFollowing] Complete. Extracted ${result.length} following`
+        `[scrapeFollowing] Complete. Extracted ${result.length} following`,
       );
 
       return result;
     } catch (error) {
       console.error(
         `[scrapeFollowing] Error scraping following for ${username}:`,
-        error
+        error,
       );
       return [];
     }
@@ -1182,7 +1220,7 @@ export class InstagramScraper {
 
   async scrapePosts(
     username: string,
-    limit: number = 12
+    limit: number = 12,
   ): Promise<ScrapedPostData[]> {
     if (!this.page || !this.isLoggedIn) {
       throw new Error("Not logged in");
@@ -1212,11 +1250,11 @@ export class InstagramScraper {
       try {
         allLinks = await this.page.$$eval(
           'a[href*="/p/"], a[href*="/reel/"]',
-          function(links, maxPosts) {
+          function (links, maxPosts) {
             const hrefs: string[] = [];
             const seenShortcodes = new Set<string>();
 
-            links.forEach(function(link) {
+            links.forEach(function (link) {
               const href = link.getAttribute("href");
               if (!href || hrefs.length >= maxPosts) return;
 
@@ -1232,7 +1270,7 @@ export class InstagramScraper {
 
             return hrefs;
           },
-          limit
+          limit,
         );
       } catch (e) {
         console.log("[scrapePosts] Error extracting post links:", e);
@@ -1247,7 +1285,7 @@ export class InstagramScraper {
       const getMetaContent = async (selector: string): Promise<string> => {
         try {
           const content = await this.page!.$eval(selector, (el) =>
-            el.getAttribute("content")
+            el.getAttribute("content"),
           );
           return content || "";
         } catch {
@@ -1260,8 +1298,8 @@ export class InstagramScraper {
         console.log(
           `[scrapePosts] Processing post ${i + 1}/${Math.min(
             allLinks.length,
-            limit
-          )}: ${link}`
+            limit,
+          )}: ${link}`,
         );
 
         try {
@@ -1282,10 +1320,10 @@ export class InstagramScraper {
 
           // Extract meta tags individually for better reliability
           const ogDescription = await getMetaContent(
-            'meta[property="og:description"]'
+            'meta[property="og:description"]',
           );
           const metaDescription = await getMetaContent(
-            'meta[name="description"]'
+            'meta[name="description"]',
           );
           const imageUrl = await getMetaContent('meta[property="og:image"]');
           const videoUrl = await getMetaContent('meta[property="og:video"]');
@@ -1321,7 +1359,7 @@ export class InstagramScraper {
 
               const pageText = document.body.innerText || "";
               const likesMatch = pageText.match(
-                /([\d,]+)\s*(?:likes?|views?)/i
+                /([\d,]+)\s*(?:likes?|views?)/i,
               );
               const commentsMatch = pageText.match(/([\d,]+)\s*comments?/i);
 
@@ -1342,7 +1380,7 @@ export class InstagramScraper {
           } catch (e) {
             console.log(
               `[scrapePosts] Error getting page info for ${shortcode}:`,
-              e
+              e,
             );
           }
 
@@ -1370,7 +1408,7 @@ export class InstagramScraper {
 
             posts.push(postData);
             console.log(
-              `[scrapePosts] Extracted post ${shortcode}: type=${type}, likes=${likes}`
+              `[scrapePosts] Extracted post ${shortcode}: type=${type}, likes=${likes}`,
             );
           }
         } catch (error) {
@@ -1383,7 +1421,7 @@ export class InstagramScraper {
     } catch (error) {
       console.error(
         `[scrapePosts] Error scraping posts for ${username}:`,
-        error
+        error,
       );
       return [];
     }
