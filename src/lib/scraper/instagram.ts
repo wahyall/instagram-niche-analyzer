@@ -36,6 +36,14 @@ export class InstagramScraper {
         "--disable-dev-shm-usage",
         "--disable-accelerated-2d-canvas",
         "--disable-gpu",
+        // Memory optimization flags
+        "--js-flags=--max-old-space-size=512",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--single-process",
       ],
     });
 
@@ -439,11 +447,20 @@ export class InstagramScraper {
       throw new Error("Not logged in");
     }
 
+    // Check if page is alive before starting, recreate if needed
+    if (!(await this.isPageAlive())) {
+      console.log("[scrapeProfile] Page is crashed, attempting to recreate...");
+      if (!(await this.recreatePage())) {
+        console.error("[scrapeProfile] Failed to recreate page");
+        return null;
+      }
+    }
+
     try {
       console.log(`[scrapeProfile] Starting scrape for: ${username}`);
 
       // Use domcontentloaded instead of networkidle to avoid timeout
-      await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
+      await this.page!.goto(`${INSTAGRAM_URL}/${username}/`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
       });
@@ -681,8 +698,19 @@ export class InstagramScraper {
     // Keep track of collected followers to return partial results on crash
     const followers: string[] = [];
 
+    // Check if page is alive before starting, recreate if needed
+    if (!(await this.isPageAlive())) {
+      console.log(
+        "[scrapeFollowers] Page is crashed, attempting to recreate...",
+      );
+      if (!(await this.recreatePage())) {
+        console.error("[scrapeFollowers] Failed to recreate page");
+        return [];
+      }
+    }
+
     try {
-      await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
+      await this.page!.goto(`${INSTAGRAM_URL}/${username}/`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
       });
@@ -1058,8 +1086,19 @@ export class InstagramScraper {
     // Keep track of collected following to return partial results on crash
     const following: string[] = [];
 
+    // Check if page is alive before starting, recreate if needed
+    if (!(await this.isPageAlive())) {
+      console.log(
+        "[scrapeFollowing] Page is crashed, attempting to recreate...",
+      );
+      if (!(await this.recreatePage())) {
+        console.error("[scrapeFollowing] Failed to recreate page");
+        return [];
+      }
+    }
+
     try {
-      await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
+      await this.page!.goto(`${INSTAGRAM_URL}/${username}/`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
       });
@@ -1435,8 +1474,17 @@ export class InstagramScraper {
 
     console.log(`[scrapePosts] Starting for ${username}, limit: ${limit}`);
 
+    // Check if page is alive before starting, recreate if needed
+    if (!(await this.isPageAlive())) {
+      console.log("[scrapePosts] Page is crashed, attempting to recreate...");
+      if (!(await this.recreatePage())) {
+        console.error("[scrapePosts] Failed to recreate page");
+        return [];
+      }
+    }
+
     try {
-      await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
+      await this.page!.goto(`${INSTAGRAM_URL}/${username}/`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
       });
