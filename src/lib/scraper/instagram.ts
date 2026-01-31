@@ -121,17 +121,17 @@ export class InstagramScraper {
       }
 
       // Wait for login form to be visible
-      // try {
-      //   await this.page.waitForSelector('input[name="email"]', {
-      //     timeout: 10000,
-      //   });
-      // } catch {
-      //   // Try alternate selectors for login form
-      //   await this.page.waitForSelector(
-      //     'input[aria-label="Phone number, username, or email"]',
-      //     { timeout: 5000 }
-      //   );
-      // }
+      try {
+        await this.page.waitForSelector('input[name="email"]', {
+          timeout: 10000,
+        });
+      } catch {
+        // Try alternate selectors for login form
+        await this.page.waitForSelector(
+          'input[aria-label="Phone number, username, or email"]',
+          { timeout: 10000 },
+        );
+      }
 
       // Fill login form
       const usernameInput =
