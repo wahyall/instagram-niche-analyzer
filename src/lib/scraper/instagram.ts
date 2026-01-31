@@ -78,6 +78,61 @@ export class InstagramScraper {
     this.isLoggedIn = false;
   }
 
+  /**
+   * Check if the page is still alive and usable
+   */
+  private async isPageAlive(): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      // Simple operation to check if page is responsive
+      await this.page.evaluate(() => true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Attempt to recreate the page after a crash
+   */
+  private async recreatePage(): Promise<boolean> {
+    if (!this.context) return false;
+    try {
+      console.log("[recreatePage] Attempting to recreate crashed page...");
+
+      // Close old page if it exists
+      if (this.page) {
+        try {
+          await this.page.close();
+        } catch {
+          // Ignore errors when closing crashed page
+        }
+      }
+
+      // Create new page
+      this.page = await this.context.newPage();
+
+      // Re-setup route blocking
+      await this.page.route("**/*", (route) => {
+        const resourceType = route.request().resourceType();
+        if (["image", "media"].includes(resourceType)) return route.abort();
+        if (
+          this.resourceBlockMode === "scrape" &&
+          ["stylesheet", "font"].includes(resourceType)
+        ) {
+          return route.abort();
+        }
+        return route.continue();
+      });
+
+      console.log("[recreatePage] Successfully recreated page");
+      return true;
+    } catch (error) {
+      console.error("[recreatePage] Failed to recreate page:", error);
+      return false;
+    }
+  }
+
   async getCookies(): Promise<Cookie[]> {
     if (!this.context) throw new Error("Browser not initialized");
     return this.context.cookies();
@@ -623,6 +678,9 @@ export class InstagramScraper {
 
     console.log(`[scrapeFollowers] Starting for ${username}`);
 
+    // Keep track of collected followers to return partial results on crash
+    const followers: string[] = [];
+
     try {
       await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
         waitUntil: "domcontentloaded",
@@ -671,10 +729,11 @@ export class InstagramScraper {
 
       console.log("[scrapeFollowers] Dialog opened, starting extraction...");
 
-      const followers: string[] = [];
       let previousCount = 0;
       let retries = 0;
       let lastScrollHeight = 0;
+      let consecutiveCrashRetries = 0;
+      const maxCrashRetries = 3;
       const excludePaths = [
         "explore",
         "direct",
@@ -740,57 +799,100 @@ export class InstagramScraper {
       );
 
       while (retries < 15) {
+        // Check if page is still alive before proceeding
+        if (!(await this.isPageAlive())) {
+          console.log("[scrapeFollowers] Page crashed, attempting recovery...");
+          consecutiveCrashRetries++;
+
+          if (consecutiveCrashRetries >= maxCrashRetries) {
+            console.log(
+              `[scrapeFollowers] Max crash retries (${maxCrashRetries}) reached, returning partial results`,
+            );
+            break;
+          }
+
+          // Try to recreate the page
+          if (await this.recreatePage()) {
+            console.log(
+              `[scrapeFollowers] Page recovered, returning ${followers.length} followers collected so far`,
+            );
+          }
+          // Return what we have so far
+          break;
+        }
+
         // Scroll the dialog incrementally using multiple strategies
-        const scrollResult = (await this.page.evaluate(`
-          (function() {
-            function scrollElement(el) {
-              const prevScrollTop = el.scrollTop;
-              el.scrollTop = el.scrollTop + 600;
-              const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
-              return {
-                scrolled: el.scrollTop !== prevScrollTop,
-                atEnd: atEnd,
-                scrollHeight: el.scrollHeight
-              };
-            }
-
-            const markedEl = document.querySelector('[data-scroll-container="true"]');
-            if (markedEl) {
-              return scrollElement(markedEl);
-            }
-
-            const dialog = document.querySelector('div[role="dialog"]');
-            if (!dialog) return { scrolled: false, atEnd: true, scrollHeight: 0 };
-
-            const scrollables = dialog.querySelectorAll("div");
-            for (const el of scrollables) {
-              if (el.scrollHeight > el.clientHeight + 50) {
+        let scrollResult: {
+          scrolled: boolean;
+          atEnd: boolean;
+          scrollHeight: number;
+        };
+        try {
+          scrollResult = (await this.page.evaluate(`
+            (function() {
+              function scrollElement(el) {
                 const prevScrollTop = el.scrollTop;
                 el.scrollTop = el.scrollTop + 600;
-                if (el.scrollTop !== prevScrollTop) {
-                  el.setAttribute("data-scroll-container", "true");
-                  const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
-                  return { 
-                    scrolled: true, 
-                    atEnd: atEnd, 
-                    scrollHeight: el.scrollHeight 
-                  };
+                const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+                return {
+                  scrolled: el.scrollTop !== prevScrollTop,
+                  atEnd: atEnd,
+                  scrollHeight: el.scrollHeight
+                };
+              }
+
+              const markedEl = document.querySelector('[data-scroll-container="true"]');
+              if (markedEl) {
+                return scrollElement(markedEl);
+              }
+
+              const dialog = document.querySelector('div[role="dialog"]');
+              if (!dialog) return { scrolled: false, atEnd: true, scrollHeight: 0 };
+
+              const scrollables = dialog.querySelectorAll("div");
+              for (const el of scrollables) {
+                if (el.scrollHeight > el.clientHeight + 50) {
+                  const prevScrollTop = el.scrollTop;
+                  el.scrollTop = el.scrollTop + 1000;
+                  if (el.scrollTop !== prevScrollTop) {
+                    el.setAttribute("data-scroll-container", "true");
+                    const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+                    return { 
+                      scrolled: true, 
+                      atEnd: atEnd, 
+                      scrollHeight: el.scrollHeight 
+                    };
+                  }
                 }
               }
-            }
 
-            return { scrolled: false, atEnd: true, scrollHeight: 0 };
-          })()
-        `)) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
+              return { scrolled: false, atEnd: true, scrollHeight: 0 };
+            })()
+          `)) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
+        } catch (scrollError) {
+          console.log(
+            "[scrapeFollowers] Scroll error (page may have crashed):",
+            scrollError,
+          );
+          break; // Exit loop and return what we have
+        }
 
         // If JS scroll didn't work, try keyboard scroll
         if (!scrollResult.scrolled) {
           console.log(
             "[scrapeFollowers] JS scroll failed, trying keyboard scroll...",
           );
-          // Focus the dialog and use Page Down
-          await this.page.keyboard.press("PageDown");
-          await this.page.waitForTimeout(300);
+          try {
+            // Focus the dialog and use Page Down
+            await this.page.keyboard.press("PageDown");
+            await this.page.waitForTimeout(300);
+          } catch (keyboardError) {
+            console.log(
+              "[scrapeFollowers] Keyboard scroll failed:",
+              keyboardError,
+            );
+            break;
+          }
         }
 
         // Wait for network activity after scrolling (Instagram loads more on scroll)
@@ -825,7 +927,11 @@ export class InstagramScraper {
         }
 
         // Additional delay to let content render
-        await this.page.waitForTimeout(RATE_LIMIT.scrollDelay + 500);
+        try {
+          await this.page.waitForTimeout(RATE_LIMIT.scrollDelay + 500);
+        } catch {
+          break;
+        }
 
         // Extract usernames using $$eval for better reliability
         let newUsernames: string[] = [];
@@ -861,6 +967,17 @@ export class InstagramScraper {
           );
         } catch (e) {
           console.log("[scrapeFollowers] Error extracting usernames:", e);
+          // Check if this is a crash error
+          const errorMsg = String(e);
+          if (
+            errorMsg.includes("Target crashed") ||
+            errorMsg.includes("Page crashed")
+          ) {
+            console.log(
+              "[scrapeFollowers] Page crashed during extraction, returning partial results",
+            );
+            break;
+          }
           newUsernames = [];
         }
 
@@ -897,22 +1014,36 @@ export class InstagramScraper {
         await randomDelay(800, 1500);
       }
 
-      // Close dialog
+      // Close dialog (safely)
       console.log("[scrapeFollowers] Closing dialog...");
-      await this.page.keyboard.press("Escape");
-      await randomDelay(300, 500);
+      try {
+        if (await this.isPageAlive()) {
+          await this.page.keyboard.press("Escape");
+          await randomDelay(300, 500);
+        }
+      } catch {
+        console.log(
+          "[scrapeFollowers] Could not close dialog (page may have crashed)",
+        );
+      }
 
-      const result = followers;
       console.log(
-        `[scrapeFollowers] Complete. Extracted ${result.length} followers`,
+        `[scrapeFollowers] Complete. Extracted ${followers.length} followers`,
       );
 
-      return result;
+      return followers;
     } catch (error) {
       console.error(
         `[scrapeFollowers] Error scraping followers for ${username}:`,
         error,
       );
+      // Return partial results if we have any
+      if (followers.length > 0) {
+        console.log(
+          `[scrapeFollowers] Returning ${followers.length} partial followers despite error`,
+        );
+        return followers;
+      }
       return [];
     }
   }
@@ -923,6 +1054,9 @@ export class InstagramScraper {
     }
 
     console.log(`[scrapeFollowing] Starting for ${username}`);
+
+    // Keep track of collected following to return partial results on crash
+    const following: string[] = [];
 
     try {
       await this.page.goto(`${INSTAGRAM_URL}/${username}/`, {
@@ -972,10 +1106,11 @@ export class InstagramScraper {
 
       console.log("[scrapeFollowing] Dialog opened, starting extraction...");
 
-      const following: string[] = [];
       let previousCount = 0;
       let retries = 0;
       let lastScrollHeight = 0;
+      let consecutiveCrashRetries = 0;
+      const maxCrashRetries = 3;
       const excludePaths = [
         "explore",
         "direct",
@@ -1041,57 +1176,100 @@ export class InstagramScraper {
       );
 
       while (retries < 15) {
+        // Check if page is still alive before proceeding
+        if (!(await this.isPageAlive())) {
+          console.log("[scrapeFollowing] Page crashed, attempting recovery...");
+          consecutiveCrashRetries++;
+
+          if (consecutiveCrashRetries >= maxCrashRetries) {
+            console.log(
+              `[scrapeFollowing] Max crash retries (${maxCrashRetries}) reached, returning partial results`,
+            );
+            break;
+          }
+
+          // Try to recreate the page
+          if (await this.recreatePage()) {
+            console.log(
+              `[scrapeFollowing] Page recovered, returning ${following.length} following collected so far`,
+            );
+          }
+          // Return what we have so far
+          break;
+        }
+
         // Scroll the dialog incrementally using multiple strategies
-        const scrollResult = (await this.page.evaluate(`
-          (function() {
-            function scrollElement(el) {
-              const prevScrollTop = el.scrollTop;
-              el.scrollTop = el.scrollTop + 600;
-              const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
-              return {
-                scrolled: el.scrollTop !== prevScrollTop,
-                atEnd: atEnd,
-                scrollHeight: el.scrollHeight
-              };
-            }
-
-            const markedEl = document.querySelector('[data-scroll-container="true"]');
-            if (markedEl) {
-              return scrollElement(markedEl);
-            }
-
-            const dialog = document.querySelector('div[role="dialog"]');
-            if (!dialog) return { scrolled: false, atEnd: true, scrollHeight: 0 };
-
-            const scrollables = dialog.querySelectorAll("div");
-            for (const el of scrollables) {
-              if (el.scrollHeight > el.clientHeight + 50) {
+        let scrollResult: {
+          scrolled: boolean;
+          atEnd: boolean;
+          scrollHeight: number;
+        };
+        try {
+          scrollResult = (await this.page.evaluate(`
+            (function() {
+              function scrollElement(el) {
                 const prevScrollTop = el.scrollTop;
                 el.scrollTop = el.scrollTop + 600;
-                if (el.scrollTop !== prevScrollTop) {
-                  el.setAttribute("data-scroll-container", "true");
-                  const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
-                  return { 
-                    scrolled: true, 
-                    atEnd: atEnd, 
-                    scrollHeight: el.scrollHeight 
-                  };
+                const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+                return {
+                  scrolled: el.scrollTop !== prevScrollTop,
+                  atEnd: atEnd,
+                  scrollHeight: el.scrollHeight
+                };
+              }
+
+              const markedEl = document.querySelector('[data-scroll-container="true"]');
+              if (markedEl) {
+                return scrollElement(markedEl);
+              }
+
+              const dialog = document.querySelector('div[role="dialog"]');
+              if (!dialog) return { scrolled: false, atEnd: true, scrollHeight: 0 };
+
+              const scrollables = dialog.querySelectorAll("div");
+              for (const el of scrollables) {
+                if (el.scrollHeight > el.clientHeight + 50) {
+                  const prevScrollTop = el.scrollTop;
+                  el.scrollTop = el.scrollTop + 600;
+                  if (el.scrollTop !== prevScrollTop) {
+                    el.setAttribute("data-scroll-container", "true");
+                    const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+                    return { 
+                      scrolled: true, 
+                      atEnd: atEnd, 
+                      scrollHeight: el.scrollHeight 
+                    };
+                  }
                 }
               }
-            }
 
-            return { scrolled: false, atEnd: true, scrollHeight: 0 };
-          })()
-        `)) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
+              return { scrolled: false, atEnd: true, scrollHeight: 0 };
+            })()
+          `)) as { scrolled: boolean; atEnd: boolean; scrollHeight: number };
+        } catch (scrollError) {
+          console.log(
+            "[scrapeFollowing] Scroll error (page may have crashed):",
+            scrollError,
+          );
+          break; // Exit loop and return what we have
+        }
 
         // If JS scroll didn't work, try keyboard scroll
         if (!scrollResult.scrolled) {
           console.log(
             "[scrapeFollowing] JS scroll failed, trying keyboard scroll...",
           );
-          // Focus the dialog and use Page Down
-          await this.page.keyboard.press("PageDown");
-          await this.page.waitForTimeout(2000);
+          try {
+            // Focus the dialog and use Page Down
+            await this.page.keyboard.press("PageDown");
+            await this.page.waitForTimeout(2000);
+          } catch (keyboardError) {
+            console.log(
+              "[scrapeFollowing] Keyboard scroll failed:",
+              keyboardError,
+            );
+            break;
+          }
         }
 
         // Wait for network activity after scrolling (Instagram loads more on scroll)
@@ -1126,7 +1304,11 @@ export class InstagramScraper {
         }
 
         // Additional delay to let content render
-        await this.page.waitForTimeout(RATE_LIMIT.scrollDelay + 500);
+        try {
+          await this.page.waitForTimeout(RATE_LIMIT.scrollDelay + 500);
+        } catch {
+          break;
+        }
 
         // Extract usernames using $$eval for better reliability
         let newUsernames: string[] = [];
@@ -1162,6 +1344,17 @@ export class InstagramScraper {
           );
         } catch (e) {
           console.log("[scrapeFollowing] Error extracting usernames:", e);
+          // Check if this is a crash error
+          const errorMsg = String(e);
+          if (
+            errorMsg.includes("Target crashed") ||
+            errorMsg.includes("Page crashed")
+          ) {
+            console.log(
+              "[scrapeFollowing] Page crashed during extraction, returning partial results",
+            );
+            break;
+          }
           newUsernames = [];
         }
 
@@ -1198,22 +1391,36 @@ export class InstagramScraper {
         await randomDelay(800, 1500);
       }
 
-      // Close dialog
+      // Close dialog (safely)
       console.log("[scrapeFollowing] Closing dialog...");
-      await this.page.keyboard.press("Escape");
-      await randomDelay(300, 500);
+      try {
+        if (await this.isPageAlive()) {
+          await this.page.keyboard.press("Escape");
+          await randomDelay(300, 500);
+        }
+      } catch {
+        console.log(
+          "[scrapeFollowing] Could not close dialog (page may have crashed)",
+        );
+      }
 
-      const result = following;
       console.log(
-        `[scrapeFollowing] Complete. Extracted ${result.length} following`,
+        `[scrapeFollowing] Complete. Extracted ${following.length} following`,
       );
 
-      return result;
+      return following;
     } catch (error) {
       console.error(
         `[scrapeFollowing] Error scraping following for ${username}:`,
         error,
       );
+      // Return partial results if we have any
+      if (following.length > 0) {
+        console.log(
+          `[scrapeFollowing] Returning ${following.length} partial following despite error`,
+        );
+        return following;
+      }
       return [];
     }
   }
