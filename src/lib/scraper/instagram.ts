@@ -36,14 +36,25 @@ export class InstagramScraper {
         "--disable-dev-shm-usage",
         "--disable-accelerated-2d-canvas",
         "--disable-gpu",
-        // Memory optimization flags
-        "--js-flags=--max-old-space-size=512",
+        // Aggressive memory optimization for low-RAM servers (512MB)
+        "--js-flags=--max-old-space-size=256",
         "--disable-extensions",
         "--disable-background-networking",
         "--disable-background-timer-throttling",
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
         "--single-process",
+        // Additional memory saving flags
+        "--disable-software-rasterizer",
+        "--disable-features=site-per-process",
+        "--disable-features=TranslateUI",
+        "--disable-ipc-flooding-protection",
+        "--disable-hang-monitor",
+        "--memory-pressure-off",
+        "--no-first-run",
+        "--no-zygote",
+        "--renderer-process-limit=1",
+        "--disable-component-update",
       ],
     });
 
@@ -55,6 +66,7 @@ export class InstagramScraper {
 
     if (cookies && cookies.length > 0) {
       await this.context.addCookies(cookies);
+      this.storedCookies = cookies; // Store for potential reinit
       this.isLoggedIn = true;
     }
 
@@ -101,9 +113,132 @@ export class InstagramScraper {
   }
 
   /**
-   * Attempt to recreate the page after a crash
+   * Check if the browser and context are still alive
+   */
+  async isBrowserHealthy(): Promise<boolean> {
+    if (!this.browser || !this.context) return false;
+    try {
+      // Try to check if context is responsive by accessing cookies
+      await this.context.cookies();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get stored cookies from class (for reinit purposes)
+   */
+  private storedCookies: Cookie[] = [];
+
+  /**
+   * Fully reinitialize the browser when context/browser has crashed
+   */
+  async reinitBrowser(): Promise<boolean> {
+    console.log("[reinitBrowser] Attempting full browser reinitialization...");
+
+    try {
+      // Try to close existing resources (ignore errors)
+      try {
+        if (this.page) await this.page.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (this.context) await this.context.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (this.browser) await this.browser.close();
+      } catch {
+        /* ignore */
+      }
+
+      // Reset state
+      this.page = null;
+      this.context = null;
+      this.browser = null;
+
+      // Reinitialize with stored cookies
+      this.browser = await chromium.launch({
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--disable-gpu",
+          // Aggressive memory optimization for low-RAM servers (512MB)
+          "--js-flags=--max-old-space-size=256",
+          "--disable-extensions",
+          "--disable-background-networking",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
+          "--single-process",
+          // Additional memory saving flags
+          "--disable-software-rasterizer",
+          "--disable-features=site-per-process",
+          "--disable-features=TranslateUI",
+          "--disable-ipc-flooding-protection",
+          "--disable-hang-monitor",
+          "--memory-pressure-off",
+          "--no-first-run",
+          "--no-zygote",
+          "--renderer-process-limit=1",
+          "--disable-component-update",
+        ],
+      });
+
+      this.context = await this.browser.newContext({
+        userAgent: USER_AGENT,
+        viewport: { width: 1280, height: 720 },
+        locale: "en-US",
+      });
+
+      // Restore cookies if we have them
+      if (this.storedCookies.length > 0) {
+        await this.context.addCookies(this.storedCookies);
+        this.isLoggedIn = true;
+      }
+
+      this.page = await this.context.newPage();
+
+      // Re-setup route blocking
+      await this.page.route("**/*", (route) => {
+        const resourceType = route.request().resourceType();
+        if (["image", "media"].includes(resourceType)) return route.abort();
+        if (
+          this.resourceBlockMode === "scrape" &&
+          ["stylesheet", "font"].includes(resourceType)
+        ) {
+          return route.abort();
+        }
+        return route.continue();
+      });
+
+      console.log("[reinitBrowser] Successfully reinitialized browser");
+      return true;
+    } catch (error) {
+      console.error("[reinitBrowser] Failed to reinitialize browser:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Attempt to recreate the page after a crash.
+   * If the context is dead, tries full browser reinitialization.
    */
   private async recreatePage(): Promise<boolean> {
+    // First check if browser/context is healthy
+    if (!(await this.isBrowserHealthy())) {
+      console.log(
+        "[recreatePage] Browser/context is dead, attempting full reinit...",
+      );
+      return this.reinitBrowser();
+    }
+
     if (!this.context) return false;
     try {
       console.log("[recreatePage] Attempting to recreate crashed page...");
@@ -137,7 +272,11 @@ export class InstagramScraper {
       return true;
     } catch (error) {
       console.error("[recreatePage] Failed to recreate page:", error);
-      return false;
+      // Context might be dead, try full reinit
+      console.log(
+        "[recreatePage] Attempting full browser reinit as fallback...",
+      );
+      return this.reinitBrowser();
     }
   }
 

@@ -6,7 +6,11 @@ import {
   releaseScraperForSession,
 } from "../scraper/session";
 import { Profile, Post, Job as JobModel } from "../db/models";
-import { addToBuffer, shouldProcessBatch, BUFFER_THRESHOLD } from "./aiAnalysisBuffer";
+import {
+  addToBuffer,
+  shouldProcessBatch,
+  BUFFER_THRESHOLD,
+} from "./aiAnalysisBuffer";
 import { processBatch, processJobRemaining } from "./aiAnalysisWorker";
 import connectDB from "../db/mongodb";
 import type { ScrapeJobData, InstagramProfile, InstagramPost } from "@/types";
@@ -41,7 +45,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
         {
           status: "processing",
           startedAt: new Date(),
-        }
+        },
       );
 
       const scraper = await getScraperForSession(sessionId);
@@ -102,11 +106,11 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
         // Trigger batch processing if buffer threshold reached
         if (bufferSize >= BUFFER_THRESHOLD) {
           console.log(
-            `[Worker] Buffer threshold reached (${bufferSize}), triggering batch processing`
+            `[Worker] Buffer threshold reached (${bufferSize}), triggering batch processing`,
           );
           // Process batch asynchronously (don't await to avoid blocking scraping)
           processBatch().catch((err) =>
-            console.error("[Worker] Batch processing error:", err)
+            console.error("[Worker] Batch processing error:", err),
           );
         }
 
@@ -116,7 +120,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
           {
             $inc: { processedProfiles: 1 },
             currentDepth: depth,
-          }
+          },
         );
 
         // Queue followers and following for scraping if not at max depth
@@ -130,7 +134,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
             // Update total profiles count
             await JobModel.updateOne(
               { jobId },
-              { $inc: { totalProfiles: followers.length } }
+              { $inc: { totalProfiles: followers.length } },
             );
 
             followers.forEach((follower) => {
@@ -155,7 +159,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
             // Update total profiles count
             await JobModel.updateOne(
               { jobId },
-              { $inc: { totalProfiles: following.length } }
+              { $inc: { totalProfiles: following.length } },
             );
 
             following.forEach((followedUser) => {
@@ -179,7 +183,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
           // Update profile with followers/following
           await Profile.updateOne(
             { username },
-            { followers: profile.followers, following: profile.following }
+            { followers: profile.followers, following: profile.following },
           );
 
           // Add child jobs to queue
@@ -196,12 +200,12 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
     },
     {
       connection,
-      concurrency: 2, // Process 2 jobs at a time
+      concurrency: 1, // Process 1 job at a time (reduced for low-RAM servers)
       limiter: {
         max: 10,
         duration: 60000, // 10 jobs per minute
       },
-    }
+    },
   );
 
   worker.on("completed", async (job) => {
@@ -217,7 +221,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
     if (job) {
       await JobModel.updateOne(
         { jobId: job.data.jobId },
-        { $inc: { failedProfiles: 1 } }
+        { $inc: { failedProfiles: 1 } },
       );
 
       // Check if this is the last job
@@ -248,13 +252,13 @@ async function checkAndCompleteJob(jobId: string): Promise<void> {
       const processedCount = await processJobRemaining(jobId);
       if (processedCount > 0) {
         console.log(
-          `[Worker] Processed ${processedCount} remaining profiles for job ${jobId}`
+          `[Worker] Processed ${processedCount} remaining profiles for job ${jobId}`,
         );
       }
     } catch (flushError) {
       console.error(
         `[Worker] Error flushing buffer for job ${jobId}:`,
-        flushError
+        flushError,
       );
     }
 
@@ -266,7 +270,7 @@ async function checkAndCompleteJob(jobId: string): Promise<void> {
       {
         status,
         completedAt: new Date(),
-      }
+      },
     );
 
     console.log(`Scrape job ${jobId} ${status}`);
